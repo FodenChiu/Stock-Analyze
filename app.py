@@ -11,7 +11,6 @@ stock_id = st.text_input("請輸入台股代號 (例如: 2330)", "1711")
 # --- 全面抓取台股中文名稱 (上市 + 上櫃) ---
 @st.cache_data(ttl=86400) 
 def get_tw_stock_name(stock_no):
-    # 1. 查上市 (TWSE)
     try:
         twse_url = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
         res = requests.get(twse_url, timeout=5).json()
@@ -21,7 +20,6 @@ def get_tw_stock_name(stock_no):
     except:
         pass
     
-    # 2. 查上櫃 (TPEx)
     try:
         tpex_url = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes"
         res = requests.get(tpex_url, timeout=5).json()
@@ -31,15 +29,42 @@ def get_tw_stock_name(stock_no):
     except:
         pass
         
-    return None, ".TW" # 預設後綴
+    return None, ".TW" 
 
-# 模擬法人籌碼 (實務上需串接付費或爬蟲API，此處保留判斷框架)
+# --- 🚀 真實連線：抓取證交所/櫃買中心三大法人真實買賣超 ---
 @st.cache_data(ttl=3600)
 def get_institutional_buy(stock_no):
-    return 1500 # 預設大於0，代表買超
+    # 1. 嘗試抓取上市 (TWSE) 籌碼
+    try:
+        url = "https://www.twse.com.tw/fund/T86?response=json&selectType=ALLBUT0999"
+        res = requests.get(url, timeout=5).json()
+        if res.get('stat') == 'OK':
+            fields = res['fields']
+            data = res['data']
+            code_idx = fields.index('證券代號')
+            total_idx = fields.index('三大法人買賣超股數')
+            for row in data:
+                if row[code_idx] == stock_no:
+                    # 官方單位是股數，除以1000換算成張數
+                    return int(row[total_idx].replace(',', '')) // 1000 
+    except:
+        pass
+    
+    # 2. 嘗試抓取上櫃 (TPEx) 籌碼
+    try:
+        url = "https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_result.php?l=zh-tw&o=json&se=EW&t=D"
+        res = requests.get(url, timeout=5).json()
+        if 'aaData' in res:
+            for row in res['aaData']:
+                if row[0] == stock_no:
+                    # 上櫃的第10欄位通常為三大法人合計買賣超
+                    return int(row[10].replace(',', '')) // 1000
+    except:
+        pass
+        
+    return 0 # 若假日無資料或查無此檔，回傳 0
 
 if st.button("啟動評級，開始分析！"):
-    # 自動判斷是上市還是上櫃
     stock_name, suffix = get_tw_stock_name(stock_id)
     yf_symbol = f"{stock_id}{suffix}"
     
@@ -66,7 +91,6 @@ if st.button("啟動評級，開始分析！"):
         df['20MA'] = df['Close'].rolling(window=20).mean()
         df['60MA'] = df['Close'].rolling(window=60).mean()
         
-        # 成交量均線 (5T, 10T)
         df['5VMA'] = df['Volume'].rolling(window=5).mean()
         df['10VMA'] = df['Volume'].rolling(window=10).mean()
         
@@ -80,28 +104,27 @@ if st.button("啟動評級，開始分析！"):
         df['EMA26'] = df['Close'].ewm(span=26, adjust=False).mean()
         df['DIF'] = df['EMA12'] - df['EMA26']
         df['MACD'] = df['DIF'].ewm(span=9, adjust=False).mean()
-        df['MACD_Hist'] = df['DIF'] - df['MACD']
         
         today = df.iloc[-1]
         yesterday = df.iloc[-2]
         
-        # 計算真實周轉率
+        # 取得周轉率與籌碼
         shares_out = ticker.info.get('sharesOutstanding', 0)
         today_volume = float(today['Volume'])
         if shares_out and shares_out > 0:
             real_turnover = (today_volume / shares_out) * 100
         else:
-            real_turnover = 0 # 若抓不到總股數則歸零
+            real_turnover = 0 
             
-        inst_buy = get_institutional_buy(stock_id)
+        inst_buy_lots = get_institutional_buy(stock_id)
 
-        # --- 顯示量能數據 ---
-        st.write("### 📊 量能與周轉率資訊")
+        # --- 顯示量能與籌碼數據 ---
+        st.write("### 📊 量能與籌碼資訊")
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("今日成交量", f"{int(today_volume):,} 股")
-        col2.metric("5T 均量", f"{int(today['5VMA']):,} 股")
-        col3.metric("10T 均量", f"{int(today['10VMA']):,} 股")
-        col4.metric("周轉率", f"{real_turnover:.2f} %" if real_turnover > 0 else "無法取得")
+        col2.metric("周轉率", f"{real_turnover:.2f} %" if real_turnover > 0 else "無法取得")
+        col3.metric("5T 均量", f"{int(today['5VMA']):,} 股")
+        col4.metric("三大法人買賣超", f"{inst_buy_lots:,} 張")
 
         # --- 10 大條件判定 ---
         st.subheader("📋 核心指標檢驗報告")
@@ -116,7 +139,7 @@ if st.button("啟動評級，開始分析！"):
         else:
             st.error(f"❌ 1. 週轉率未達 9% (目前: {real_turnover:.2f}%)")
             
-        # 2. KD 低檔交叉 (K>D 且 K<60 且 D<55)
+        # 2. KD 低檔交叉 
         k_val = float(today['K'])
         d_val = float(today['D'])
         if k_val > d_val and k_val < 60 and d_val < 55:
@@ -132,12 +155,14 @@ if st.button("啟動評級，開始分析！"):
         else:
             st.error("❌ 3. 均線尚未全面上揚")
 
-        # 4. 籌碼買超
-        if inst_buy > 0:
-            st.success(f"✅ 4. 籌碼偏多：三大法人買超")
+        # 4. 籌碼買超 (真實數據)
+        if inst_buy_lots > 0:
+            st.success(f"✅ 4. 籌碼偏多：三大法人買超 {inst_buy_lots:,} 張")
             score += 1
+        elif inst_buy_lots < 0:
+            st.error(f"❌ 4. 籌碼偏空：三大法人賣超 {abs(inst_buy_lots):,} 張")
         else:
-            st.error("❌ 4. 籌碼偏空：法人未買超")
+            st.error(f"❌ 4. 籌碼無明顯買賣超或無資料 (0 張)")
 
         # 5. 大於季線扣抵
         if float(today['Close']) > float(df.iloc[-60]['Close']):
@@ -146,13 +171,13 @@ if st.button("啟動評級，開始分析！"):
         else:
             st.error("❌ 5. 股價小於季線扣抵")
 
-        # 6. MACD 零軸之上 (DIF > 0)
-        dif_val = float(today['DIF'])
-        if dif_val > 0:
-            st.success(f"✅ 6. MACD 位於零軸之上 (目前 DIF: {dif_val:.2f})")
+        # 6. DIF - MACD > 0
+        macd_diff = float(today['DIF']) - float(today['MACD'])
+        if macd_diff > 0:
+            st.success(f"✅ 6. DIF - MACD 大於 0 (目前數值: {macd_diff:.3f})")
             score += 1
         else:
-            st.error(f"❌ 6. MACD 低於零軸，屬水下弱勢 (目前 DIF: {dif_val:.2f})")
+            st.error(f"❌ 6. DIF - MACD 小於或等於 0 (目前數值: {macd_diff:.3f})")
 
         # 7. 站穩 5T
         if float(today['Close']) > float(today['5MA']):
@@ -175,7 +200,7 @@ if st.button("啟動評級，開始分析！"):
         else:
             st.error(f"❌ 9. 股價跌破 20T ({float(today['20MA']):.2f})")
             
-        # 10. 量能健康 (大於5T/10T均量，且收紅K)
+        # 10. 量能健康 
         is_red_candle = float(today['Close']) > float(today['Open'])
         if today_volume > float(today['5VMA']) and today_volume > float(today['10VMA']) and is_red_candle:
             st.success(f"✅ 10. 量能健康：溫和放量且收紅K (無爆量出貨疑慮)")

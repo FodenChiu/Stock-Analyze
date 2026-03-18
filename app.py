@@ -2,7 +2,7 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import requests
-import time
+import datetime
 
 st.set_page_config(page_title="股市短線評級 App", page_icon="⚡")
 st.title("⚡ 專屬股市短線評級 - 強勢股掃描器")
@@ -32,44 +32,47 @@ def get_tw_stock_name(stock_no):
         
     return None, ".TW" 
 
-# --- 🚀 核心升級：抓取指定「單一日期」的真實籌碼 ---
+# --- 🚀 終極穩定方案：使用 FinMind API 抓取籌碼 ---
 @st.cache_data(ttl=3600)
-def get_single_day_inst_buy(stock_no, date_obj):
-    # 將日期轉換為台股 API 格式 (TWSE用西元, TPEx用民國)
-    twse_date = date_obj.strftime("%Y%m%d")
-    roc_year = date_obj.year - 1911
-    tpex_date = f"{roc_year}/{date_obj.strftime('%m/%d')}"
+def get_institutional_data_finmind(stock_no):
+    # 抓取近 10 天的資料，確保能涵蓋到最近的 3 個交易日
+    end_date = datetime.date.today().strftime("%Y-%m-%d")
+    start_date = (datetime.date.today() - datetime.timedelta(days=15)).strftime("%Y-%m-%d")
     
-    # 1. 嘗試抓取上市 (TWSE)
+    url = "https://api.finmindtrade.com/api/v4/data"
+    parameter = {
+        "dataset": "TaiwanStockInstitutionalInvestorsBuySell",
+        "data_id": stock_no,
+        "start_date": start_date,
+        "end_date": end_date,
+    }
+    
     try:
-        url = f"https://www.twse.com.tw/exchangeReport/T86?response=json&date={twse_date}&selectType=ALLBUT0999"
-        res = requests.get(url, timeout=5).json()
-        if res.get('stat') == 'OK':
-            fields = res['fields']
-            data = res['data']
-            code_idx = fields.index('證券代號')
-            total_idx = fields.index('三大法人買賣超股數')
-            for row in data:
-                if row[code_idx] == stock_no:
-                    return int(row[total_idx].replace(',', '')) // 1000 
-    except:
+        resp = requests.get(url, params=parameter, timeout=10)
+        data = resp.json()
+        
+        if data["msg"] == "success" and len(data["data"]) > 0:
+            df_inst = pd.DataFrame(data["data"])
+            
+            # 依日期分組，將不同法人的買賣超加總
+            df_grouped = df_inst.groupby('date')['buy_sell'].sum().reset_index()
+            # 依照日期排序（由舊到新）
+            df_grouped = df_grouped.sort_values(by='date').reset_index(drop=True)
+            
+            # 取最近的 3 個交易日
+            if len(df_grouped) >= 3:
+                last_3 = df_grouped.tail(3)['buy_sell'].tolist()
+                # FinMind 單位也是股，需轉為張
+                return [int(x) // 1000 for x in last_3]
+            elif len(df_grouped) > 0:
+                 # 如果連 3 天都沒有，就盡量取
+                 last_n = df_grouped['buy_sell'].tolist()
+                 return [int(x) // 1000 for x in last_n]
+    except Exception as e:
+        print(f"FinMind API 錯誤: {e}")
         pass
         
-    # 稍微暫停避免被交易所封鎖 IP
-    time.sleep(0.2)
-    
-    # 2. 嘗試抓取上櫃 (TPEx)
-    try:
-        url = f"https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_result.php?l=zh-tw&o=json&se=EW&t=D&d={tpex_date}"
-        res = requests.get(url, timeout=5).json()
-        if 'aaData' in res:
-            for row in res['aaData']:
-                if row[0] == stock_no:
-                    return int(row[10].replace(',', '')) // 1000
-    except:
-        pass
-        
-    return 0 
+    return [0, 0, 0] # 真的抓不到就回傳 0
 
 if st.button("啟動評級，開始分析！"):
     stock_name, suffix = get_tw_stock_name(stock_id)
@@ -82,7 +85,7 @@ if st.button("啟動評級，開始分析！"):
         except:
             stock_name = "未知名稱"
             
-    st.info(f"正在連線交易所，分析 {stock_id} {stock_name} 的近三日數據...")
+    st.info(f"正在連線資料庫，分析 {stock_id} {stock_name} 的近三日數據...")
     
     df = ticker.history(period="1y")
     
@@ -115,31 +118,32 @@ if st.button("啟動評級，開始分析！"):
         today = df.iloc[-1]
         yesterday = df.iloc[-2]
         
-        # --- 近三日籌碼計算與趨勢分析 ---
-        last_3_dates = df.index[-3:] # 抓取最近 3 個交易日
-        inst_data = []
-        for d in last_3_dates:
-            inst_data.append(get_single_day_inst_buy(stock_id, d))
+        # --- 近三日籌碼計算與趨勢分析 (FinMind 版) ---
+        inst_data = get_institutional_data_finmind(stock_id)
+        
+        # 確保至少有三天的資料格式
+        while len(inst_data) < 3:
+            inst_data.insert(0, 0)
             
-        v1, v2, v3 = inst_data[0], inst_data[1], inst_data[2] # v1是最舊(三天前)，v3是最新(今天)
+        v1, v2, v3 = inst_data[0], inst_data[1], inst_data[2]
         avg_inst = sum(inst_data) / 3
         
         # 籌碼趨勢判定
         trend_text = "籌碼震盪整理"
         if v3 > 0 and v2 > 0 and v1 > 0:
             if v3 > v2 and v2 > v1:
-                trend_text = "🔥 連續三天買超，且買盤【逐漸擴大】"
+                trend_text = "🔥 連續買超且擴大"
             else:
-                trend_text = "📈 連續三天買超，籌碼穩定沉澱"
+                trend_text = "📈 連續買超穩定"
         elif v3 < 0 and v2 < 0 and v1 < 0:
             if v3 < v2 and v2 < v1:
-                trend_text = "⚠️ 連續三天賣超，且賣壓【逐漸沉重】"
+                trend_text = "⚠️ 連續賣超且擴大"
             else:
-                trend_text = "📉 連續三天賣超，籌碼持續流出"
+                trend_text = "📉 連續賣超穩定"
         elif v3 > 0 and v2 <= 0:
-            trend_text = "✨ 由賣轉買，法人可能開始建倉"
+            trend_text = "✨ 由賣轉買"
         elif v3 < 0 and v2 >= 0:
-            trend_text = "🚨 由買轉賣，法人出現倒貨跡象"
+            trend_text = "🚨 由買轉賣"
             
         # 周轉率計算
         shares_out = ticker.info.get('sharesOutstanding', 0)

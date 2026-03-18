@@ -7,11 +7,13 @@ import datetime
 st.set_page_config(page_title="股市短線評級 App", page_icon="⚡")
 st.title("⚡ 專屬股市短線評級 - 強勢股掃描器")
 
-stock_id = st.text_input("請輸入台股代號 (例如: 2330)", "2337")
+# 改良輸入框，預設文字加上提示
+stock_id = st.text_input("請輸入台股代號 (例如: 2337)", "2337")
 
-# --- 全面抓取台股中文名稱 ---
+# --- 🚀 終極正名：全面抓取台股「中文名稱」 ---
 @st.cache_data(ttl=86400) 
 def get_tw_stock_name(stock_no):
+    # 1. 先查上市 (TWSE)
     try:
         twse_url = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
         res = requests.get(twse_url, timeout=5).json()
@@ -21,6 +23,7 @@ def get_tw_stock_name(stock_no):
     except:
         pass
     
+    # 2. 再查上櫃 (TPEx)
     try:
         tpex_url = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes"
         res = requests.get(tpex_url, timeout=5).json()
@@ -32,7 +35,7 @@ def get_tw_stock_name(stock_no):
         
     return None, ".TW" 
 
-# --- 🚀 籌碼抓取 (加入防呆機制) ---
+# --- 籌碼抓取 (防呆機制) ---
 @st.cache_data(ttl=3600)
 def get_institutional_data_finmind(stock_no):
     end_date = datetime.date.today().strftime("%Y-%m-%d")
@@ -55,7 +58,6 @@ def get_institutional_data_finmind(stock_no):
             df_grouped = df_inst.groupby('date')['buy_sell'].sum().reset_index()
             df_grouped = df_grouped.sort_values(by='date').reset_index(drop=True)
             
-            # 如果抓到的資料大於等於 4 天，我們取最後 4 天備用
             if len(df_grouped) >= 4:
                 return [int(x) // 1000 for x in df_grouped.tail(4)['buy_sell'].tolist()]
             elif len(df_grouped) > 0:
@@ -63,30 +65,31 @@ def get_institutional_data_finmind(stock_no):
     except:
         pass
         
-    return [0, 0, 0, 0] # 預設回傳 4 個 0
+    return [0, 0, 0, 0] 
 
 if st.button("啟動評級，開始分析！"):
-    stock_name, suffix = get_tw_stock_name(stock_id)
+    # 優先使用我們自己抓的中文名稱
+    tw_name, suffix = get_tw_stock_name(stock_id)
     yf_symbol = f"{stock_id}{suffix}"
     
-    ticker = yf.Ticker(yf_symbol)
-    if not stock_name:
-        try:
-            stock_name = ticker.info.get('shortName', '未知名稱')
-        except:
-            stock_name = "未知名稱"
+    # 如果真的連台灣官方 API 都掛了，才顯示未知名稱，絕不用英文
+    display_name = tw_name if tw_name else "未知名稱"
             
-    st.info(f"正在連線資料庫，分析 {stock_id} {stock_name} 的數據...")
+    # ✨ 這裡就會顯示你指定的格式： 例如 "正在分析 2337 旺宏 的數據"
+    st.info(f"正在連線資料庫，分析 {stock_id} {display_name} 的數據...")
     
+    ticker = yf.Ticker(yf_symbol)
     df = ticker.history(period="1y")
     
     if df.empty:
         st.error("找不到這檔股票，請確認代號是否正確。")
     else:
         current_price = float(df['Close'].iloc[-1])
-        # 判斷是否為今日強勢漲停 (粗略抓 9.5% 以上)
         prev_close = float(df['Close'].iloc[-2])
         is_limit_up = (current_price - prev_close) / prev_close >= 0.095
+        
+        # 顯示大大字體的股票名稱與價格
+        st.markdown(f"## {stock_id} {display_name}")
         
         if is_limit_up:
             st.metric(label=f"目前收盤價", value=f"{current_price:.2f} 元", delta="🔥 強勢漲停")
@@ -116,12 +119,11 @@ if st.button("啟動評級，開始分析！"):
         today = df.iloc[-1]
         yesterday = df.iloc[-2]
         
-        # --- 近三日籌碼計算與趨勢分析 (防呆版) ---
+        # --- 近三日籌碼 ---
         inst_data = get_institutional_data_finmind(stock_id)
         while len(inst_data) < 4:
             inst_data.insert(0, 0)
             
-        # 如果最後一筆（今天）是 0，代表資料可能還沒進來或漲停鎖死，自動往前推取前三天
         if inst_data[-1] == 0 and sum(inst_data[-4:-1]) != 0:
             v1, v2, v3 = inst_data[-4], inst_data[-3], inst_data[-2]
             st.caption("*(註：今日籌碼尚未更新或因漲停無資料，採用前三個交易日數據評估)*")
@@ -130,7 +132,6 @@ if st.button("啟動評級，開始分析！"):
             
         avg_inst = (v1 + v2 + v3) / 3
         
-        # 籌碼趨勢判定
         trend_text = "籌碼震盪整理"
         if v3 > 0 and v2 > 0 and v1 > 0:
             if v3 > v2 and v2 > v1: trend_text = "🔥 連續買超且擴大"
@@ -141,7 +142,6 @@ if st.button("啟動評級，開始分析！"):
         elif v3 > 0 and v2 <= 0: trend_text = "✨ 由賣轉買"
         elif v3 < 0 and v2 >= 0: trend_text = "🚨 由買轉賣"
             
-        # 周轉率計算
         shares_out = ticker.info.get('sharesOutstanding', 0)
         today_volume = float(today['Volume'])
         if shares_out and shares_out > 0:
@@ -149,7 +149,7 @@ if st.button("啟動評級，開始分析！"):
         else:
             real_turnover = 0 
 
-        # --- 顯示量能與籌碼數據 ---
+        # --- 顯示數據 ---
         st.write("### 📊 量能與籌碼資訊")
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("今日成交量", f"{int(today_volume):,} 股")
@@ -169,13 +169,13 @@ if st.button("啟動評級，開始分析！"):
         else:
             st.error(f"❌ 1. 週轉率未達 9% (目前: {real_turnover:.2f}%)")
             
+        # 🚀 KD 嚴格版：噴太高(K>60)一律不買！
         k_val, d_val = float(today['K']), float(today['D'])
-        # KD 優化：滿足原條件，或 K大於80且維持多頭交叉
-        if (k_val > d_val and k_val < 60 and d_val < 55) or (k_val > d_val and k_val >= 80):
-            st.success(f"✅ 2. KD 呈現低檔交叉或強勢鈍化 (K:{k_val:.1f}, D:{d_val:.1f})")
+        if k_val > d_val and k_val < 60 and d_val < 55:
+            st.success(f"✅ 2. KD 呈現低檔交叉 (K:{k_val:.1f}, D:{d_val:.1f})")
             score += 1
         else:
-            st.error(f"❌ 2. KD 未符合低檔交叉或強勢條件 (K:{k_val:.1f}, D:{d_val:.1f})")
+            st.error(f"❌ 2. KD 未符合低檔交叉條件 (K:{k_val:.1f}, D:{d_val:.1f})")
 
         if float(today['5MA']) > float(yesterday['5MA']) and float(today['10MA']) > float(yesterday['10MA']) and float(today['20MA']) > float(yesterday['20MA']):
             st.success("✅ 3. 均線全面上揚 (5T、10T、20T皆大於昨日)")
@@ -223,7 +223,6 @@ if st.button("啟動評級，開始分析！"):
             st.error(f"❌ 9. 股價跌破 20T ({float(today['20MA']):.2f})")
             
         is_red_candle = float(today['Close']) > float(today['Open'])
-        # 如果是漲停鎖死，就算量縮也給過 (因為沒人賣)
         if (today_volume > float(today['5VMA']) and today_volume > float(today['10VMA']) and is_red_candle) or is_limit_up:
             st.success(f"✅ 10. 量能健康：溫和放量收紅K，或強勢漲停籌碼鎖定")
             score += 1

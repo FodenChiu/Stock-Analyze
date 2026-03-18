@@ -7,21 +7,20 @@ st.set_page_config(page_title="股市教練 App", page_icon="📈")
 st.title("📈 專屬股市教練 - 波段起漲掃描器")
 
 # 讓使用者輸入代號
-stock_id = st.text_input("請輸入台股代號 (例如: 2330)", "2330")
+stock_id = st.text_input("請輸入台股代號 (例如: 2330)", "1711")
 
-# --- 新增功能：抓取台股中文名稱 ---
-@st.cache_data(ttl=86400) # 快取一天就好
+# --- 抓取台股中文名稱 (雙重保險) ---
+@st.cache_data(ttl=86400) 
 def get_tw_stock_name(stock_no):
     try:
-        # 使用台灣證交所的公開資料 API 抓取中文名稱
         url = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
-        res = requests.get(url).json()
+        res = requests.get(url, timeout=5).json()
         for stock in res:
             if stock['Code'] == stock_no:
                 return stock['Name']
-        return "未知名稱"
     except:
-        return "無法取得名稱"
+        pass
+    return None
 
 # 模擬抓取籌碼與週轉率
 @st.cache_data(ttl=3600)
@@ -32,18 +31,26 @@ def get_twse_data(stock_no):
 
 if st.button("啟動教練，開始分析！"):
     yf_symbol = f"{stock_id}.TW"
-    stock_name = get_tw_stock_name(stock_id)
     
+    # 取得名稱：先試證交所，失敗再用 Yahoo 備用
+    stock_name = get_tw_stock_name(stock_id)
+    ticker = yf.Ticker(yf_symbol)
+    if not stock_name:
+        try:
+            stock_name = ticker.info.get('shortName', '未知名稱')
+        except:
+            stock_name = "未知名稱"
+            
     st.info(f"正在分析： {stock_id} {stock_name} ...")
     
-    # 抓取股價資料
-    df = yf.download(yf_symbol, period="1y")
+    # 🌟 核心修正：改用 ticker.history 確保資料格式為單純的 1D 欄位
+    df = ticker.history(period="1y")
     
     if df.empty:
         st.error("找不到這檔股票，請確認代號是否正確。")
     else:
-        # 顯示最新股價 (拿掉美金，改成中文)
-        current_price = df['Close'].iloc[-1].item() # 確保取出單一數值
+        # 顯示最新股價
+        current_price = float(df['Close'].iloc[-1])
         st.metric(label=f"目前收盤價", value=f"{current_price:.2f} 元")
         
         # --- 計算技術指標 ---
@@ -52,10 +59,10 @@ if st.button("啟動教練，開始分析！"):
         df['20MA'] = df['Close'].rolling(window=20).mean()
         df['60MA'] = df['Close'].rolling(window=60).mean()
         
-        # KD 指標
+        # KD 指標 (加入 1e-9 避免碰到漲跌停鎖死時，分母為 0 的錯誤)
         df['9K_Min'] = df['Low'].rolling(window=9).min()
         df['9K_Max'] = df['High'].rolling(window=9).max()
-        df['RSV'] = 100 * (df['Close'] - df['9K_Min']) / (df['9K_Max'] - df['9K_Min'])
+        df['RSV'] = 100 * (df['Close'] - df['9K_Min']) / (df['9K_Max'] - df['9K_Min'] + 1e-9)
         df['K'] = df['RSV'].ewm(com=2, adjust=False).mean()
         df['D'] = df['K'].ewm(com=2, adjust=False).mean()
         
@@ -81,14 +88,14 @@ if st.button("啟動教練，開始分析！"):
         else:
             st.error(f"❌ 1. 週轉率未達 8% (目前: {turnover}%)")
             
-        if today['K'].item() > today['D'].item() and yesterday['K'].item() <= yesterday['D'].item():
+        if float(today['K']) > float(today['D']) and float(yesterday['K']) <= float(yesterday['D']):
             st.success("✅ 2. KD 黃金交叉")
             score += 1
         else:
-            st.error(f"❌ 2. KD 未黃金交叉 (K:{today['K'].item():.1f}, D:{today['D'].item():.1f})")
+            st.error(f"❌ 2. KD 未黃金交叉 (K:{float(today['K']):.1f}, D:{float(today['D']):.1f})")
 
-        if (today['5MA'].item() > today['10MA'].item()) and (yesterday['5MA'].item() <= yesterday['10MA'].item()) and \
-           (today['Close'].item() > today['5MA'].item()) and (today['Close'].item() > today['60MA'].item()):
+        if (float(today['5MA']) > float(today['10MA'])) and (float(yesterday['5MA']) <= float(yesterday['10MA'])) and \
+           (float(today['Close']) > float(today['5MA'])) and (float(today['Close']) > float(today['60MA'])):
             st.success("✅ 3. 5日線突破10日線，且站上各均線")
             score += 1
         else:
@@ -100,27 +107,27 @@ if st.button("啟動教練，開始分析！"):
         else:
             st.error("❌ 4. 籌碼偏空：法人未見買超")
 
-        if today['Close'].item() > df.iloc[-60]['Close'].item():
+        if float(today['Close']) > float(df.iloc[-60]['Close']):
             st.success("✅ 5. 季線扣抵有過 (60MA趨勢向上)")
             score += 1
         else:
             st.error("❌ 5. 季線趨勢尚未翻揚")
 
-        if today['MACD_Hist'].item() > 0 and yesterday['MACD_Hist'].item() <= 0:
+        if float(today['MACD_Hist']) > 0 and float(yesterday['MACD_Hist']) <= 0:
             st.success("✅ 6. MACD 黃金交叉")
             score += 1
         else:
             st.error("❌ 6. MACD 尚未黃金交叉")
 
-        dist_10ma = (today['Close'].item() - today['10MA'].item()) / today['10MA'].item()
-        if today['Close'].item() > today['10MA'].item() and dist_10ma <= 0.02:
+        dist_10ma = (float(today['Close']) - float(today['10MA'])) / float(today['10MA'])
+        if float(today['Close']) > float(today['10MA']) and dist_10ma <= 0.02:
             st.success(f"✅ 7. 10日線支撐 (距離 {dist_10ma:.1%})")
             score += 1
         else:
             st.error("❌ 7. 未達 10日線支撐標準")
 
-        dist_20ma = (today['Close'].item() - today['20MA'].item()) / today['20MA'].item()
-        if today['Close'].item() > today['20MA'].item() and dist_20ma <= 0.02:
+        dist_20ma = (float(today['Close']) - float(today['20MA'])) / float(today['20MA'])
+        if float(today['Close']) > float(today['20MA']) and dist_20ma <= 0.02:
             st.success(f"✅ 8. 20日線支撐 (距離 {dist_20ma:.1%})")
             score += 1
         else:

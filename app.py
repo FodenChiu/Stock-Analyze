@@ -3,20 +3,20 @@ import yfinance as yf
 import pandas as pd
 import datetime
 
-# --- 🚀 全局介面設定 ---
+# --- 全局介面設定 ---
 st.set_page_config(
     page_title="台股短線起漲診斷器",
     page_icon="⚡",
     layout="wide"
 )
 
-# 嵌入客製化 CSS (包含黑金配色與最新的「買進爆炸特效」)
+# 嵌入客製化 CSS (保持黑金配色，並加入超華麗神來也特效所需的所有樣式)
 st.markdown("""
 <style>
-    /* 1. 全局背景與字體 */
+    /* 1. 全局背景與字體 (黑金風) */
     html, body, [data-testid="stAppViewContainer"] {
         font-family: "Microsoft JhengHei", sans-serif;
-        background-color: #121212;
+        background-color: #121212; /* 深黑色 */
         color: #EAEAEA;
     }
     
@@ -43,30 +43,73 @@ st.markdown("""
     input[data-testid="stTextInput"] { background-color: #1E1E1E !important; color: #EAEAEA !important; border: 1px solid #333 !important; }
     input[data-testid="stTextInput"]::placeholder { color: #777 !important; }
     
-    /* ⚠️ 6. 核心：【買進】爆炸特效 CSS 動畫 ⚠️ */
-    @keyframes buy-explosion {
-        0% { transform: scale(0.1); opacity: 0; }
-        20% { transform: scale(1.3); opacity: 1; }
-        40% { transform: scale(1); }
-        80% { transform: scale(1); opacity: 1; }
-        100% { transform: scale(1.2); opacity: 0; }
-    }
+    /* --- 🌸 6. 核心：神來也「槓上開花」復刻特效 (買進爆炸) 🌸 --- */
+    
+    /* 爆炸特效容器 (覆蓋全螢幕) */
     .buy-blast-container {
-        position: fixed;
-        top: 0; left: 0;
+        position: fixed; top: 0; left: 0;
         width: 100vw; height: 100vh;
+        background: radial-gradient(circle, rgba(231, 76, 60, 0.1) 0%, rgba(12, 12, 12, 0.9) 70%, rgba(12, 12, 12, 1) 100%); /* 深紅暈光底 */
         display: flex; align-items: center; justify-content: center;
-        z-index: 1000;
-        pointer-events: none; /* 爆炸時不影響點擊 */
+        z-index: 1000; pointer-events: none; /* 不影響點擊 */
+        opacity: 0; animation: blast-fade-in 0.5s ease-out forwards, blast-fade-out 0.5s ease-in 2.5s forwards; /* 整體淡入淡出 */
+    }
+    
+    /* 金屬反光「買進」爆炸文字 (復刻金屬質感與紅暈) */
+    @keyframes metallic-反光 {
+        0% { background-position: -200% 0; }
+        100% { background-position: 200% 0; }
     }
     .buy-blast-text {
         font-size: 10rem;
         font-weight: 900;
-        color: #F8D06B; /* 亮金色 */
-        text-transform: uppercase;
-        letter-spacing: 15px;
-        text-shadow: 0 0 30px rgba(255, 0, 0, 0.8), 0 0 60px rgba(212, 175, 55, 1), 0 0 100px rgba(212, 175, 55, 0.5); /* 金紅爆炸暈 */
-        animation: buy-explosion 2.5s ease-out forwards;
+        background: linear-gradient(90deg, #FAD02E, #F8D06B, #FAD02E); /* 金屬色漸層 */
+        background-size: 200% auto;
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        color: #F8D06B; /* 備用金色 */
+        animation: metallic-反光 2s linear infinite, blast-text-boom 0.3s ease-out forwards; /* 文字爆炸與反光 */
+        letter-spacing: 20px;
+        text-shadow: 0 0 30px rgba(255, 0, 0, 0.8), 0 0 60px rgba(12, 12, 12, 0.3), 0 0 100px rgba(212, 175, 55, 0.5); /* 金紅櫻花暈 */
+    }
+    
+    /* 特效容器淡入淡出動畫 */
+    @keyframes blast-fade-in { 0% { opacity: 0; } 100% { opacity: 1; } }
+    @keyframes blast-fade-out { 0% { opacity: 1; } 100% { opacity: 0; visibility: hidden; } }
+    
+    /* 文字爆炸出現動畫 (砰！的放大) */
+    @keyframes blast-text-boom {
+        0% { transform: scale(0.1); opacity: 0; }
+        30% { transform: scale(1.4); opacity: 1; }
+        50% { transform: scale(1); }
+        100% { transform: scale(1); opacity: 1; }
+    }
+    
+    /* 🌸 櫻花樹枝 (復刻神來也兩側櫻花枝) 🌸 */
+    .cherry-branch {
+        position: absolute; width: 300px; height: 300px;
+        background-image: url('https://img.pixers.pics/pho(s3:700/PI/91/97/99/700_PI919799_4e8677c77f0a8c2d5d85d7b5b5c96030_5b8a05a10f63a_w5b8a05a10f63b.png)'); /* 實體櫻花樹枝圖片 (選用最乾淨的) */
+        background-size: contain; background-repeat: no-repeat;
+        opacity: 0; animation: cherry-fade-in 0.5s ease-out 0.2s forwards; /* 櫻花樹枝淡入 */
+    }
+    .cherry-branch-left { top: 50px; left: -100px; transform: rotate(40deg); } /* 左上枝 */
+    .cherry-branch-right { bottom: 50px; right: -100px; transform: scaleX(-1) rotate(-40deg); } /* 右下枝，並水平翻轉 */
+    
+    @keyframes cherry-fade-in { 0% { opacity: 0; } 100% { opacity: 0.8; } }
+    
+    /* 🌸 櫻花飄落 (復刻飄落的櫻花辦) 🌸 */
+    @keyframes cherry-fall {
+        0% { transform: translate(0, -10px) rotate(0); }
+        25% { transform: translate(-10px, 25vh) rotate(90deg); }
+        50% { transform: translate(10px, 50vh) rotate(180deg); }
+        75% { transform: translate(-5px, 75vh) rotate(270deg); }
+        100% { transform: translate(0, 100vh) rotate(360deg); }
+    }
+    .cherry-petal {
+        position: absolute; width: 10px; height: 10px;
+        background-color: #F8BBD0; /* 淡粉色花瓣 */
+        border-radius: 50%;
+        animation: cherry-fall 5s linear infinite; /* 飄落 */
     }
 </style>
 """, unsafe_allow_html=True)
@@ -99,7 +142,7 @@ if analyze_btn:
                 if not d.empty: return d, t
             return None, None
 
-        with st.spinner(f"正在分析 {stock_id} ..."):
+        with st.spinner(f"正在深度分析 {stock_id} ..."):
             df, ticker = fetch_data(stock_id)
             
             if df is None:
@@ -143,11 +186,21 @@ if analyze_btn:
                 ok_vol = today['Volume'] > today['5VMA'] and today['Close'] > today['Open']; score += 20 if ok_vol else 0
                 results.append(("量增紅K", "實體放量攻擊", ok_vol, "量大代表主力介入，買盤掌握主導權。"))
 
-                # --- 🚀 核心：當分數達標時，觸發爆炸特效 🚀 ---
+                # --- 🌸 核心：當分數達標時，觸發神來也櫻花爆炸特效 🌸 ---
                 if score >= 70:
-                    st.markdown("""
+                    st.markdown(f"""
                         <div class="buy-blast-container">
                             <div class="buy-blast-text">買進</div>
+                            <div class="cherry-branch cherry-branch-left"></div> /* 左上枝 */
+                            <div class="cherry-branch cherry-branch-right"></div> /* 右下枝 */
+                            
+                            /* 🌸 生成櫻花飘落花辦 (手動生成幾個) 🌸 */
+                            <div class="cherry-petal" style="left: 10vw; animation-delay: 0.1s; animation-duration: 5.2s;"></div>
+                            <div class="cherry-petal" style="left: 25vw; animation-delay: 0.3s; animation-duration: 4.8s;"></div>
+                            <div class="cherry-petal" style="left: 40vw; animation-delay: 0.5s; animation-duration: 5.5s;"></div>
+                            <div class="cherry-petal" style="left: 55vw; animation-delay: 0.7s; animation-duration: 5.0s;"></div>
+                            <div class="cherry-petal" style="left: 70vw; animation-delay: 0.9s; animation-duration: 4.6s;"></div>
+                            <div class="cherry-petal" style="left: 85vw; animation-delay: 1.1s; animation-duration: 5.3s;"></div>
                         </div>
                     """, unsafe_allow_html=True)
 

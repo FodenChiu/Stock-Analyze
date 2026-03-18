@@ -146,12 +146,13 @@ if st.button("啟動評級，開始分析！"):
         else:
             st.error("❌ 5. 股價小於季線扣抵")
 
-        # 6. MACD 黃金交叉
-        if float(today['MACD_Hist']) > 0 and float(yesterday['MACD_Hist']) <= 0:
-            st.success("✅ 6. MACD 呈現黃金交叉")
+        # 6. MACD 零軸之上 (DIF > 0)
+        dif_val = float(today['DIF'])
+        if dif_val > 0:
+            st.success(f"✅ 6. MACD 位於零軸之上 (目前 DIF: {dif_val:.2f})")
             score += 1
         else:
-            st.error("❌ 6. MACD 尚未黃金交叉")
+            st.error(f"❌ 6. MACD 低於零軸，屬水下弱勢 (目前 DIF: {dif_val:.2f})")
 
         # 7. 站穩 5T
         if float(today['Close']) > float(today['5MA']):

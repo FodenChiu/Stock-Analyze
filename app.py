@@ -10,86 +10,69 @@ st.set_page_config(
     layout="wide"
 )
 
-# 嵌入客製化 CSS (奢華黑金配色)
+# 嵌入客製化 CSS (包含黑金配色與最新的「買進爆炸特效」)
 st.markdown("""
 <style>
     /* 1. 全局背景與字體 */
     html, body, [data-testid="stAppViewContainer"] {
         font-family: "Microsoft JhengHei", sans-serif;
-        background-color: #121212; /* 深黑色背景 */
-        color: #EAEAEA; /* 亮灰色文字 */
+        background-color: #121212;
+        color: #EAEAEA;
     }
     
-    /* 2. 標題與文字 */
-    .main-title { color: #D4AF37; font-weight: bold; margin-bottom: 5px; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); }
+    /* 2. 標題與輸入框 */
+    .main-title { color: #D4AF37; font-weight: bold; margin-bottom: 5px; }
     .input-label { font-size: 18px; font-weight: bold; color: #D4AF37; margin-bottom: 8px; }
     
-    /* 3. 卡片與區塊 */
-    .metric-card, .check-item {
-        background-color: #1E1E1E; /* 深灰色卡片 */
-        border-radius: 12px;
-        padding: 20px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.3); /* 深色陰影 */
-        margin-bottom: 15px;
-        border: 1px solid #333; /* 暗色邊框 */
-    }
-    
-    /* 4. 核心計分盤 (奢華金屬風) */
-    .score-circle {
-        background-color: #121212;
-        border-radius: 50%;
-        width: 130px;
-        height: 130px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        border: 10px solid #333; /* 預設深色圈 */
-        margin: 0 auto;
-        box-shadow: 0 0 15px rgba(212, 175, 55, 0.2); /* 微妙金色光暈 */
-    }
+    /* 3. 卡片與計分盤 */
+    .metric-card, .check-item { background-color: #1E1E1E; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); margin-bottom: 15px; border: 1px solid #333; }
+    .score-circle { background-color: #121212; border-radius: 50%; width: 130px; height: 130px; display: flex; align-items: center; justify-content: center; border: 10px solid #333; margin: 0 auto; box-shadow: 0 0 15px rgba(212, 175, 55, 0.2); }
     .score-text { font-size: 42px; font-weight: bold; color: #D4AF37; }
     
-    /* 5. 按鈕 (金色) */
-    .stButton > button {
-        background-color: #D4AF37 !important;
-        color: #121212 !important;
-        font-weight: bold !important;
-        border-radius: 8px !important;
-        border: none !important;
-        transition: background-color 0.3s !important;
-    }
-    .stButton > button:hover {
-        background-color: #F8D06B !important; /* 懸停時變亮金 */
-    }
+    /* 4. 金色按鈕 */
+    .stButton > button { background-color: #D4AF37 !important; color: #121212 !important; font-weight: bold !important; border-radius: 8px !important; transition: background-color 0.3s !important; }
+    .stButton > button:hover { background-color: #F8D06B !important; }
     
-    /* 6. 指標檢查清單 */
+    /* 5. 指標清單與狀態 */
     .check-title { font-weight: bold; color: #EAEAEA; font-size: 16px; }
     .check-reason { color: #AAA; font-size: 13.5px; margin-top: 6px; line-height: 1.4; }
-    
-    /* 7. 狀態標籤 (深色底綠/紅字) */
     .status-pass { background-color: #1A3E2A; color: #2DCC70; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: bold; border: 1px solid #2DCC70; }
     .status-fail { background-color: #3E1A1A; color: #E74C3C; padding: 6px 14px; border-radius: 20px; font-size: 13px; font-weight: bold; border: 1px solid #E74C3C; }
     
-    /* 8. 其他調整 */
-    .disclaimer { font-size: 12px; color: #777; text-align: center; margin-top: 50px; }
+    /* 深色輸入框 */
+    input[data-testid="stTextInput"] { background-color: #1E1E1E !important; color: #EAEAEA !important; border: 1px solid #333 !important; }
+    input[data-testid="stTextInput"]::placeholder { color: #777 !important; }
     
-    /* 調整文字輸入框 (深色底亮字) */
-    input[data-testid="stTextInput"] {
-        background-color: #1E1E1E !important;
-        color: #EAEAEA !important;
-        border: 1px solid #333 !important;
-        border-radius: 8px !important;
+    /* ⚠️ 6. 核心：【買進】爆炸特效 CSS 動畫 ⚠️ */
+    @keyframes buy-explosion {
+        0% { transform: scale(0.1); opacity: 0; }
+        20% { transform: scale(1.3); opacity: 1; }
+        40% { transform: scale(1); }
+        80% { transform: scale(1); opacity: 1; }
+        100% { transform: scale(1.2); opacity: 0; }
     }
-    input[data-testid="stTextInput"]::placeholder {
-        color: #777 !important;
+    .buy-blast-container {
+        position: fixed;
+        top: 0; left: 0;
+        width: 100vw; height: 100vh;
+        display: flex; align-items: center; justify-content: center;
+        z-index: 1000;
+        pointer-events: none; /* 爆炸時不影響點擊 */
+    }
+    .buy-blast-text {
+        font-size: 10rem;
+        font-weight: 900;
+        color: #F8D06B; /* 亮金色 */
+        text-transform: uppercase;
+        letter-spacing: 15px;
+        text-shadow: 0 0 30px rgba(255, 0, 0, 0.8), 0 0 60px rgba(212, 175, 55, 1), 0 0 100px rgba(212, 175, 55, 0.5); /* 金紅爆炸暈 */
+        animation: buy-explosion 2.5s ease-out forwards;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- 頂部標題 ---
+# --- 頂部標題與輸入 ---
 st.markdown('<h1 class="main-title">⚡ 台股短線起漲點診斷</h1>', unsafe_allow_html=True)
-
-# --- 輸入區域 ---
 st.markdown('<p class="input-label">📍 請輸入台股代號 (上市櫃均可)</p>', unsafe_allow_html=True)
 stock_id = st.text_input("label_hidden", value="", label_visibility="collapsed", placeholder="請輸入代號 (例如: 2330, 8069...)")
 
@@ -122,7 +105,7 @@ if analyze_btn:
             if df is None:
                 st.error(f"❌ 查無代號「{stock_id}」，請檢查輸入。")
             else:
-                # 指標運算邏輯
+                # 指標運算邏輯 (維持 17.0 穩定版)
                 df['5MA'] = df['Close'].rolling(5).mean()
                 df['10MA'] = df['Close'].rolling(10).mean()
                 df['20MA'] = df['Close'].rolling(20).mean()
@@ -143,11 +126,9 @@ if analyze_btn:
                 score = 0
                 results = []
                 
-                # 判斷指標
-                # 1. 週轉率 (10%)
+                # 保留原邏輯...
                 ok = turnover > 9.0; score += 10 if ok else 0
                 results.append(("週轉率 > 9%", f"實測 {turnover:.2f}%", ok, "高週轉率代表換手積極，是短線強勢股配備。"))
-                # 2-8. 保留原邏輯...
                 ok_kd = today['K'] > today['D'] and today['K'] < 60 and today['D'] < 55; score += 20 if ok_kd else 0
                 results.append(("KD 低檔黃叉", f"K:{today['K']:.1f}, D:{today['D']:.1f}", ok_kd, "低位階交叉代表初次起漲，風險報酬佳。"))
                 ok_ma = today['5MA'] > yest['5MA'] and today['10MA'] > yest['10MA'] and today['20MA'] > yest['20MA']; score += 20 if ok_ma else 0
@@ -162,6 +143,14 @@ if analyze_btn:
                 ok_vol = today['Volume'] > today['5VMA'] and today['Close'] > today['Open']; score += 20 if ok_vol else 0
                 results.append(("量增紅K", "實體放量攻擊", ok_vol, "量大代表主力介入，買盤掌握主導權。"))
 
+                # --- 🚀 核心：當分數達標時，觸發爆炸特效 🚀 ---
+                if score >= 70:
+                    st.markdown("""
+                        <div class="buy-blast-container">
+                            <div class="buy-blast-text">買進</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+
                 # --- 顯示報告介面 ---
                 col_sc, col_det = st.columns([1, 2])
                 with col_sc:
@@ -172,7 +161,7 @@ if analyze_btn:
                 with col_det:
                     st.markdown(f"## {stock_id} 模擬診斷報告")
                     st.write(f"當前收盤：**{today['Close']:.2f} 元**")
-                    if score >= 70: st.success("🎯 **偵測到高勝率訊號**：建議納入參考。"); st.balloons()
+                    if score >= 70: st.success("🎯 **偵測到高勝率訊號**：建議納入參考。")
                     elif score >= 50: st.warning("⚠️ **動能累積中**：需補量或等待到位。")
                     else: st.error("❄️ **指標弱勢**：目前動能不足。")
 

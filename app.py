@@ -26,10 +26,11 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<h1 class="main-title">⚡ 台股短線起漲點診斷</h1>', unsafe_allow_html=True)
-st.markdown('<p class="input-label">📍 請輸入台股代號</p>', unsafe_allow_html=True)
-stock_id = st.text_input("label_hidden", value="", label_visibility="collapsed", placeholder="例如: 2330")
-analyze_btn = st.button("🚀 診斷")
+# --- 🎯 標題更換為：台股短線買入評級 ---
+st.markdown('<h1 class="main-title">⚡ 台股短線買入評級</h1>', unsafe_allow_html=True)
+st.markdown('<p class="input-label">📍 請輸入台股代號 (上市櫃均可)</p>', unsafe_allow_html=True)
+stock_id = st.text_input("label_hidden", value="", label_visibility="collapsed", placeholder="例如: 2330, 8069...")
+analyze_btn = st.button("🚀 啟動深度診斷")
 
 if analyze_btn and stock_id:
     def fetch_data(sid):
@@ -42,7 +43,7 @@ if analyze_btn and stock_id:
         df, ticker = fetch_data(stock_id)
         if df is None: st.error(f"❌ 查無代號「{stock_id}」")
         else:
-            # 指標運算
+            # 運算核心指標
             df['5MA'] = df['Close'].rolling(5).mean(); df['10MA'] = df['Close'].rolling(10).mean(); df['20MA'] = df['Close'].rolling(20).mean()
             df['60MA'] = df['Close'].rolling(60).mean(); df['5VMA'] = df['Volume'].rolling(5).mean()
             df['9L'], df['9H'] = df['Low'].rolling(9).min(), df['High'].rolling(9).max()
@@ -71,30 +72,28 @@ if analyze_btn and stock_id:
             # 3. 均線翻揚 (20%)
             ok = today['5MA'] > yest['5MA'] and today['10MA'] > yest['10MA'] and today['20MA'] > yest['20MA']
             iscore = 20 if ok else 0; score += iscore
-            results.append(("短期均線翻揚", "5/10/20T 同步向上", f"+{iscore}分", "status-pass" if ok else "status-fail", "均線同向翻揚代表市場短中線趨勢一致向上。"))
+            results.append(("短期均線翻揚", "5/10/20T 同步向上", f"+{iscore}分", "status-pass" if ok else "status-fail", "均線同向翻揚代表趨勢一致向上。"))
 
-            # 4. 合併均線支撐 (15%) - 顯示具體數值
+            # 4. 均線支撐 (15%)
             c = today['Close']; m5 = today['5MA']; m10 = today['10MA']; m20 = today['20MA']
             count = sum([c > m5, c > m10, c > m20])
             val_str = f"5T:{m5:.2f} | 10T:{m10:.2f} | 20T:{m20:.2f}"
-            if count == 3: ma_s, ma_t, ma_c, ma_r = 15, "+15分", "status-pass", f"三線合一強支撐：目前收盤({c:.2f})站穩所有均線({val_str})。"
-            elif count == 2: ma_s, ma_t, ma_c, ma_r = 10, "+10分", "status-mid", f"雙線支撐：目前收盤({c:.2f})，支撐區位於 {val_str}。"
-            elif count == 1: ma_s, ma_t, ma_c, ma_r = 5, "+5分", "status-fail", f"單線支撐：僅守住單一均線，收盤({c:.2f})，均線值：{val_str}。"
-            else: ma_s, ma_t, ma_c, ma_r = 0, "+0分", "status-fail", f"支撐全失：股價({c:.2f})已跌破所有均線({val_str})。"
+            if count == 3: ma_s, ma_t, ma_c, ma_r = 15, "+15分", "status-pass", f"三線合一：收盤({c:.2f})站穩所有均線({val_str})。"
+            elif count == 2: ma_s, ma_t, ma_c, ma_r = 10, "+10分", "status-mid", f"雙線支撐：目前收盤({c:.2f})，均線值：{val_str}。"
+            else: ma_s, ma_t, ma_c, ma_r = max(count*5, 0), f"+{max(count*5, 0)}分", "status-fail", f"支撐偏弱：僅站穩 {count} 條線，均線值：{val_str}。"
             score += ma_s; results.append(("均線支撐數據", f"站穩 {count} 條線", ma_t, ma_c, ma_r))
 
-            # 5. 量價配合 (30%) - 顯示具體張數
-            v_vol = int(today['Volume'] / 1000)
-            v_avg = int(today['5VMA'] / 1000)
+            # 5. 量價配合 (30%)
+            v_vol = int(today['Volume'] / 1000); v_avg = int(today['5VMA'] / 1000)
             ok = today['Volume'] > today['5VMA'] and today['Close'] > today['Open']
             iscore = 30 if ok else 0; score += iscore
-            results.append(("量增紅K攻擊", f"今日 {v_vol:,}張 / 5T均 {v_avg:,}張", f"+{iscore}分", "status-pass" if ok else "status-fail", f"今日成交 {v_vol:,}張，量能放大且收紅K，為主力的攻擊表態。"))
+            results.append(("量增紅K攻擊", f"今日 {v_vol:,}張 / 5T均 {v_avg:,}張", f"+{iscore}分", "status-pass" if ok else "status-fail", f"量能放大且收紅K，為主力的攻擊表態。"))
 
             # 6. 季線與 MACD (各 5%)
             ok60 = today['Close'] > df.iloc[-60]['Close']; s60 = 5 if ok60 else 0; score += s60
             results.append(("季線趨勢向上", f"收盤:{c:.2f} > 60日前:{df.iloc[-60]['Close']:.2f}", f"+{s60}分", "status-pass" if ok60 else "status-fail", "中長線多頭底氣十足。"))
             okm = (today['DIF'] - today['MACD']) > 0; sm = 5 if okm else 0; score += sm
-            results.append(("MACD 動能轉正", f"紅柱動能發散", f"+{sm}分", "status-pass" if okm else "status-fail", "MACD 柱狀翻紅，代表短線攻擊力道加強。"))
+            results.append(("MACD 動能轉正", "柱狀圖翻紅", f"+{sm}分", "status-pass" if okm else "status-fail", "DIF > MACD，短線攻擊力道加強。"))
 
             # --- 顯示總分報告 ---
             col_sc, col_det = st.columns([1, 2])
@@ -104,12 +103,14 @@ if analyze_btn and stock_id:
                 st.markdown(f"<p style='text-align:center; color:{c_hex}; font-weight:bold; margin-top:10px;'>診斷總分</p>", unsafe_allow_html=True)
             
             with col_det:
-                st.markdown(f"## {stock_id} 模擬診斷分析報告")
+                st.markdown(f"## {stock_id} 買入評級診斷報告")
                 if score >= 80: st.success("🎯 **值得買入**：技術面具備強大起漲動能！")
-                elif score >= 70: st.warning("⚠️ **列入觀察**：分數達標，建議確認大盤走勢。")
-                elif score >= 60: st.info("⚪ **保守看對**：分數剛好及格，建議等待更明確訊號。")
-                else: st.error("❄️ **暫不參考**：總分未達門檻。")
+                elif score >= 70: st.warning("⚠️ **列入觀察**：分數達標，建議確認市場氛圍。")
+                elif score >= 60: st.info("⚪ **保守看對**：分數及格，建議等待更明確訊號。")
+                else: st.error("❄️ **暫不參考**：總分未達門檻，動能不足。")
 
-            st.markdown("### 🔍 關鍵數據與得分細節")
+            st.markdown("### 🔍 各項得分細節")
             for title, data, score_tag, cls, reason in results:
-                st.markdown(f'<div class="check-item"><div style="flex: 1;"><div class="check-title">{title} ({data})</div><div class="check-reason"><b>分析：</b>{reason}</div></div><div class="{cls}">{score_tag}</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="check-item"><div style="flex: 1;"><div class="check-title">{title} ({data})</div><div class="check-reason"><b>教練分析：</b>{reason}</div></div><div class="{cls}">{score_tag}</div></div>', unsafe_allow_html=True)
+
+st.markdown('<div class="disclaimer">⚠️ 免責聲明：本工具僅為技術指標分析用途，不構成投資建議。投資一定有風險。</div>', unsafe_allow_html=True)

@@ -3,7 +3,7 @@ import yfinance as yf
 import pandas as pd
 
 # --- 🚀 全局介面設定 ---
-st.set_page_config(page_title="台股短線起漲診斷器", page_icon="⚡", layout="wide")
+st.set_page_config(page_title="台股短線買入評級", page_icon="⚡", layout="wide")
 
 st.markdown("""
 <style>
@@ -28,8 +28,8 @@ st.markdown("""
 
 st.markdown('<h1 class="main-title">⚡ 台股短線起漲點診斷</h1>', unsafe_allow_html=True)
 st.markdown('<p class="input-label">📍 請輸入台股代號</p>', unsafe_allow_html=True)
-stock_id = st.text_input("label_hidden", value="", label_visibility="collapsed", placeholder="例如: 2330, 8069...")
-analyze_btn = st.button("🚀 啟動深度診斷")
+stock_id = st.text_input("label_hidden", value="", label_visibility="collapsed", placeholder="例如: 2330")
+analyze_btn = st.button("🚀 診斷")
 
 if analyze_btn and stock_id:
     def fetch_data(sid):

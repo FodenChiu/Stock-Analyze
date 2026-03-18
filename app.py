@@ -28,7 +28,7 @@ st.markdown("""
 
 st.markdown('<h1 class="main-title">⚡ 台股短線起漲點診斷</h1>', unsafe_allow_html=True)
 st.markdown('<p class="input-label">📍 請輸入台股代號</p>', unsafe_allow_html=True)
-stock_id = st.text_input("label_hidden", value="", label_visibility="collapsed", placeholder="例如: 2330, 8069...")
+stock_id = st.text_input("label_hidden", value="", label_visibility="collapsed", placeholder="例如: 2330,...")
 analyze_btn = st.button("🚀 啟動深度診斷")
 
 if analyze_btn and stock_id:
@@ -102,7 +102,7 @@ if analyze_btn and stock_id:
             
             with col_det:
                 st.markdown(f"## {stock_id} 模擬診斷分析")
-                if score >= 80: st.success("🎯 **值得買入**：技術面具備強大起漲動能！"); st.balloons()
+                if score >= 80: st.success("🎯 **值得買入**：技術面具備強大起漲動能！")
                 elif score >= 70: st.warning("⚠️ **列入觀察**：分數達標，建議確認大盤走勢。")
                 elif score >= 60: st.info("⚪ **保守看對**：分數剛好及格，建議等待更明確訊號。")
                 else: st.error("❄️ **暫不參考**：總分未達門檻。")

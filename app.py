@@ -94,7 +94,7 @@ if analyze_btn and stock_id:
                 results.append((f"站穩 {lbl}", f"守住 {lbl} 支撐", "通過" if ok_st else "未過", "status-pass" if ok_st else "status-fail", f"股價維持在 {lbl} 之上，代表強勢格局未破。"))
             
             ok_60 = today['Close'] > df.iloc[-60]['Close']; score += 5 if ok_60 else 0
-            results.append(("季線扣抵有過", "60MA 趨勢向上", "通過" if ok_60 else "未過", "status-pass" if ok_60 else "status-fail", "股價大於60日前價格，代表中長線趨勢翻多。"))
+            results.append(("季線扣抵", "60MA 趨勢向上", "通過" if ok_60 else "未過", "status-pass" if ok_60 else "status-fail", "股價大於60日前價格，代表中長線趨勢翻多。"))
             ok_macd = (today['DIF'] - today['MACD']) > 0; score += 5 if ok_macd else 0
             results.append(("DIF-MACD > 0", "柱狀翻紅", "通過" if ok_macd else "未過", "status-pass" if ok_macd else "status-fail", "動能指標轉正，代表攻擊力道正在增強。"))
 

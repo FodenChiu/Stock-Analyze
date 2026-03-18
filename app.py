@@ -7,33 +7,43 @@ import datetime
 st.set_page_config(page_title="股市短線評級 App", page_icon="⚡")
 st.title("⚡ 專屬股市短線評級 - 強勢股掃描器")
 
-# 改良輸入框，預設文字加上提示
-stock_id = st.text_input("請輸入台股代號 (例如: 2337)", "2337")
-
-# --- 🚀 終極正名：全面抓取台股「中文名稱」 ---
-@st.cache_data(ttl=86400) 
-def get_tw_stock_name(stock_no):
-    # 1. 先查上市 (TWSE)
+# --- 🚀 全新功能：建立全台股「代號對應名稱」的雙向字典 ---
+@st.cache_data(ttl=86400) # 每天更新一次字典就好
+def build_stock_dictionary():
+    stock_dict = {} # 儲存 { "代號": ("名稱", "後綴") }
+    name_dict = {}  # 儲存 { "名稱": ("代號", "後綴") }
+    
+    # 1. 抓取上市 (TWSE)
     try:
         twse_url = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
         res = requests.get(twse_url, timeout=5).json()
         for stock in res:
-            if stock['Code'] == stock_no:
-                return stock['Name'], ".TW"
+            code = stock['Code']
+            name = stock['Name']
+            stock_dict[code] = (name, ".TW")
+            name_dict[name] = (code, ".TW")
     except:
         pass
     
-    # 2. 再查上櫃 (TPEx)
+    # 2. 抓取上櫃 (TPEx)
     try:
         tpex_url = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_quotes"
         res = requests.get(tpex_url, timeout=5).json()
         for stock in res:
-            if stock['SecuritiesCompanyCode'] == stock_no:
-                return stock['CompanyName'], ".TWO"
+            code = stock['SecuritiesCompanyCode']
+            name = stock['CompanyName']
+            stock_dict[code] = (name, ".TWO")
+            name_dict[name] = (code, ".TWO")
     except:
         pass
         
-    return None, ".TW" 
+    return stock_dict, name_dict
+
+# 載入台股字典
+stock_dict, name_dict = build_stock_dictionary()
+
+# 改良輸入框：支援代號與中文
+user_input = st.text_input("請輸入台股代號或中文名稱 (例如: 2337 或 旺宏)", "旺宏")
 
 # --- 籌碼抓取 (防呆機制) ---
 @st.cache_data(ttl=3600)
@@ -68,28 +78,49 @@ def get_institutional_data_finmind(stock_no):
     return [0, 0, 0, 0] 
 
 if st.button("啟動評級，開始分析！"):
-    # 優先使用我們自己抓的中文名稱
-    tw_name, suffix = get_tw_stock_name(stock_id)
-    yf_symbol = f"{stock_id}{suffix}"
+    # 清理使用者輸入的空白
+    search_query = user_input.strip()
     
-    # 如果真的連台灣官方 API 都掛了，才顯示未知名稱，絕不用英文
-    display_name = tw_name if tw_name else "未知名稱"
+    # 判斷使用者輸入的是代號還是中文名稱
+    target_code = ""
+    target_name = ""
+    suffix = ".TW" # 預設上市
+    
+    # 如果字典有成功建立，就進行配對
+    if stock_dict and name_dict:
+        if search_query in stock_dict: # 輸入的是代號
+            target_code = search_query
+            target_name = stock_dict[search_query][0]
+            suffix = stock_dict[search_query][1]
+        elif search_query in name_dict: # 輸入的是中文名稱
+            target_code = name_dict[search_query][0]
+            target_name = search_query
+            suffix = name_dict[search_query][1]
+        else:
+            # 如果字典找不到，假設他輸入的是代號，硬幹試試看
+            target_code = search_query
+            target_name = "未知名稱"
+    else:
+         # 萬一 API 壞掉無法建立字典，退回純代號模式
+         target_code = search_query
+         target_name = "未知名稱"
+
+    yf_symbol = f"{target_code}{suffix}"
             
-    # ✨ 這裡就會顯示你指定的格式： 例如 "正在分析 2337 旺宏 的數據"
-    st.info(f"正在連線資料庫，分析 {stock_id} {display_name} 的數據...")
+    st.info(f"正在連線資料庫，分析 {target_code} {target_name} 的數據...")
     
     ticker = yf.Ticker(yf_symbol)
     df = ticker.history(period="1y")
     
     if df.empty:
-        st.error("找不到這檔股票，請確認代號是否正確。")
+        st.error(f"找不到「{search_query}」這檔股票，請確認代號或名稱是否正確。")
     else:
         current_price = float(df['Close'].iloc[-1])
         prev_close = float(df['Close'].iloc[-2])
         is_limit_up = (current_price - prev_close) / prev_close >= 0.095
         
         # 顯示大大字體的股票名稱與價格
-        st.markdown(f"## {stock_id} {display_name}")
+        st.markdown(f"## {target_code} {target_name}")
         
         if is_limit_up:
             st.metric(label=f"目前收盤價", value=f"{current_price:.2f} 元", delta="🔥 強勢漲停")
@@ -120,7 +151,7 @@ if st.button("啟動評級，開始分析！"):
         yesterday = df.iloc[-2]
         
         # --- 近三日籌碼 ---
-        inst_data = get_institutional_data_finmind(stock_id)
+        inst_data = get_institutional_data_finmind(target_code)
         while len(inst_data) < 4:
             inst_data.insert(0, 0)
             

@@ -30,7 +30,9 @@ st.markdown("""
 # --- 標題與輸入 ---
 st.markdown('<h1 class="main-title">⚡ 台股短線買入評級</h1>', unsafe_allow_html=True)
 st.markdown('<p class="input-label">📍 請輸入台股代號 (上市櫃均可)</p>', unsafe_allow_html=True)
-stock_id = st.text_input("label_hidden", value="", label_visibility="collapsed", placeholder="例如: 2330, 8069...")
+
+# 🎯 修改：例如: 2330
+stock_id = st.text_input("label_hidden", value="", label_visibility="collapsed", placeholder="例如: 2330")
 analyze_btn = st.button("🚀 啟動深度診斷")
 
 if analyze_btn and stock_id:
@@ -44,7 +46,7 @@ if analyze_btn and stock_id:
         df, ticker = fetch_data(stock_id)
         if df is None: st.error(f"❌ 查無代號「{stock_id}」")
         else:
-            # 運算指標 (同 25.0 版)
+            # 運算指標
             df['5MA'] = df['Close'].rolling(5).mean(); df['10MA'] = df['Close'].rolling(10).mean(); df['20MA'] = df['Close'].rolling(20).mean()
             df['60MA'] = df['Close'].rolling(60).mean(); df['5VMA'] = df['Volume'].rolling(5).mean()
             df['9L'], df['9H'] = df['Low'].rolling(9).min(), df['High'].rolling(9).max()
@@ -59,7 +61,6 @@ if analyze_btn and stock_id:
             
             score = 0; results = []
             
-            # 權重判定 (遵循你的規則)
             # 1. 週轉率 (5%)
             ok = turnover > 8.0; iscore = 5 if ok else 0; score += iscore
             results.append(("週轉率 > 8%", f"實測 {turnover:.2f}%", f"+{iscore}分", "status-pass" if ok else "status-fail", "週轉率代表市場熱度與換手動能。"))
@@ -103,7 +104,6 @@ if analyze_btn and stock_id:
             
             with col_det:
                 st.markdown(f"## {stock_id} 買入評級診斷報告")
-                # 📌 內嵌權重說明區塊
                 st.markdown(f"""
                 <div class="weight-box">
                     <b>📈 評分權重說明：</b><br>
@@ -119,6 +119,7 @@ if analyze_btn and stock_id:
 
             st.markdown("### 🔍 各項得分細節")
             for t, d, stg, cls, r in results:
-                st.markdown(f'<div class="check-item"><div style="flex: 1;"><div class="check-title">{t} ({d})</div><div class="check-reason"><b>分析：</b>{r}</div></div><div class="{cls}">{stg}</div></div>', unsafe_allow_html=True)
+                # 🎯 修改：模擬分析:
+                st.markdown(f'<div class="check-item"><div style="flex: 1;"><div class="check-title">{t} ({d})</div><div class="check-reason"><b>模擬分析：</b>{r}</div></div><div class="{cls}">{stg}</div></div>', unsafe_allow_html=True)
 
 st.markdown('<div class="disclaimer">⚠️ 免責聲明：本工具僅為技術指標分析用途，不構成投資建議。投資一定有風險。</div>', unsafe_allow_html=True)

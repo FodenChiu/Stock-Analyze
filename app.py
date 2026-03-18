@@ -3,20 +3,20 @@ import yfinance as yf
 import pandas as pd
 import datetime
 
-# --- 全局介面設定 ---
+# --- 🚀 全局介面設定 ---
 st.set_page_config(
     page_title="台股短線起漲診斷器",
     page_icon="⚡",
     layout="wide"
 )
 
-# 嵌入客製化 CSS (保持黑金配色，並加入超華麗神來也特效所需的所有樣式)
+# 嵌入客製化 CSS (移除特效，保留黑金護眼風格)
 st.markdown("""
 <style>
-    /* 1. 全局背景與字體 (黑金風) */
+    /* 1. 全局背景與字體 */
     html, body, [data-testid="stAppViewContainer"] {
         font-family: "Microsoft JhengHei", sans-serif;
-        background-color: #121212; /* 深黑色 */
+        background-color: #121212;
         color: #EAEAEA;
     }
     
@@ -43,74 +43,8 @@ st.markdown("""
     input[data-testid="stTextInput"] { background-color: #1E1E1E !important; color: #EAEAEA !important; border: 1px solid #333 !important; }
     input[data-testid="stTextInput"]::placeholder { color: #777 !important; }
     
-    /* --- 🌸 6. 核心：神來也「槓上開花」復刻特效 (買進爆炸) 🌸 --- */
-    
-    /* 爆炸特效容器 (覆蓋全螢幕) */
-    .buy-blast-container {
-        position: fixed; top: 0; left: 0;
-        width: 100vw; height: 100vh;
-        background: radial-gradient(circle, rgba(231, 76, 60, 0.1) 0%, rgba(12, 12, 12, 0.9) 70%, rgba(12, 12, 12, 1) 100%); /* 深紅暈光底 */
-        display: flex; align-items: center; justify-content: center;
-        z-index: 1000; pointer-events: none; /* 不影響點擊 */
-        opacity: 0; animation: blast-fade-in 0.5s ease-out forwards, blast-fade-out 0.5s ease-in 2.5s forwards; /* 整體淡入淡出 */
-    }
-    
-    /* 金屬反光「買進」爆炸文字 (復刻金屬質感與紅暈) */
-    @keyframes metallic-反光 {
-        0% { background-position: -200% 0; }
-        100% { background-position: 200% 0; }
-    }
-    .buy-blast-text {
-        font-size: 10rem;
-        font-weight: 900;
-        background: linear-gradient(90deg, #FAD02E, #F8D06B, #FAD02E); /* 金屬色漸層 */
-        background-size: 200% auto;
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        color: #F8D06B; /* 備用金色 */
-        animation: metallic-反光 2s linear infinite, blast-text-boom 0.3s ease-out forwards; /* 文字爆炸與反光 */
-        letter-spacing: 20px;
-        text-shadow: 0 0 30px rgba(255, 0, 0, 0.8), 0 0 60px rgba(12, 12, 12, 0.3), 0 0 100px rgba(212, 175, 55, 0.5); /* 金紅櫻花暈 */
-    }
-    
-    /* 特效容器淡入淡出動畫 */
-    @keyframes blast-fade-in { 0% { opacity: 0; } 100% { opacity: 1; } }
-    @keyframes blast-fade-out { 0% { opacity: 1; } 100% { opacity: 0; visibility: hidden; } }
-    
-    /* 文字爆炸出現動畫 (砰！的放大) */
-    @keyframes blast-text-boom {
-        0% { transform: scale(0.1); opacity: 0; }
-        30% { transform: scale(1.4); opacity: 1; }
-        50% { transform: scale(1); }
-        100% { transform: scale(1); opacity: 1; }
-    }
-    
-    /* 🌸 櫻花樹枝 (復刻神來也兩側櫻花枝) 🌸 */
-    .cherry-branch {
-        position: absolute; width: 300px; height: 300px;
-        background-image: url('https://img.pixers.pics/pho(s3:700/PI/91/97/99/700_PI919799_4e8677c77f0a8c2d5d85d7b5b5c96030_5b8a05a10f63a_w5b8a05a10f63b.png)'); /* 實體櫻花樹枝圖片 (選用最乾淨的) */
-        background-size: contain; background-repeat: no-repeat;
-        opacity: 0; animation: cherry-fade-in 0.5s ease-out 0.2s forwards; /* 櫻花樹枝淡入 */
-    }
-    .cherry-branch-left { top: 50px; left: -100px; transform: rotate(40deg); } /* 左上枝 */
-    .cherry-branch-right { bottom: 50px; right: -100px; transform: scaleX(-1) rotate(-40deg); } /* 右下枝，並水平翻轉 */
-    
-    @keyframes cherry-fade-in { 0% { opacity: 0; } 100% { opacity: 0.8; } }
-    
-    /* 🌸 櫻花飄落 (復刻飄落的櫻花辦) 🌸 */
-    @keyframes cherry-fall {
-        0% { transform: translate(0, -10px) rotate(0); }
-        25% { transform: translate(-10px, 25vh) rotate(90deg); }
-        50% { transform: translate(10px, 50vh) rotate(180deg); }
-        75% { transform: translate(-5px, 75vh) rotate(270deg); }
-        100% { transform: translate(0, 100vh) rotate(360deg); }
-    }
-    .cherry-petal {
-        position: absolute; width: 10px; height: 10px;
-        background-color: #F8BBD0; /* 淡粉色花瓣 */
-        border-radius: 50%;
-        animation: cherry-fall 5s linear infinite; /* 飄落 */
-    }
+    /* 其他調整 */
+    .disclaimer { font-size: 12px; color: #777; text-align: center; margin-top: 50px; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -142,13 +76,13 @@ if analyze_btn:
                 if not d.empty: return d, t
             return None, None
 
-        with st.spinner(f"正在深度分析 {stock_id} ..."):
+        with st.spinner(f"正在分析 {stock_id} ..."):
             df, ticker = fetch_data(stock_id)
             
             if df is None:
                 st.error(f"❌ 查無代號「{stock_id}」，請檢查輸入。")
             else:
-                # 指標運算邏輯 (維持 17.0 穩定版)
+                # 指標運算邏輯
                 df['5MA'] = df['Close'].rolling(5).mean()
                 df['10MA'] = df['Close'].rolling(10).mean()
                 df['20MA'] = df['Close'].rolling(20).mean()
@@ -169,7 +103,7 @@ if analyze_btn:
                 score = 0
                 results = []
                 
-                # 保留原邏輯...
+                # 權重判斷
                 ok = turnover > 9.0; score += 10 if ok else 0
                 results.append(("週轉率 > 9%", f"實測 {turnover:.2f}%", ok, "高週轉率代表換手積極，是短線強勢股配備。"))
                 ok_kd = today['K'] > today['D'] and today['K'] < 60 and today['D'] < 55; score += 20 if ok_kd else 0
@@ -185,24 +119,6 @@ if analyze_btn:
                     results.append((f"站穩 {lbl}", f"守住 {lbl} 支撐", ok_st, f"維持在 {lbl} 之上，強勢格局未破。"))
                 ok_vol = today['Volume'] > today['5VMA'] and today['Close'] > today['Open']; score += 20 if ok_vol else 0
                 results.append(("量增紅K", "實體放量攻擊", ok_vol, "量大代表主力介入，買盤掌握主導權。"))
-
-                # --- 🌸 核心：當分數達標時，觸發神來也櫻花爆炸特效 🌸 ---
-                if score >= 70:
-                    st.markdown(f"""
-                        <div class="buy-blast-container">
-                            <div class="buy-blast-text">買進</div>
-                            <div class="cherry-branch cherry-branch-left"></div> /* 左上枝 */
-                            <div class="cherry-branch cherry-branch-right"></div> /* 右下枝 */
-                            
-                            /* 🌸 生成櫻花飘落花辦 (手動生成幾個) 🌸 */
-                            <div class="cherry-petal" style="left: 10vw; animation-delay: 0.1s; animation-duration: 5.2s;"></div>
-                            <div class="cherry-petal" style="left: 25vw; animation-delay: 0.3s; animation-duration: 4.8s;"></div>
-                            <div class="cherry-petal" style="left: 40vw; animation-delay: 0.5s; animation-duration: 5.5s;"></div>
-                            <div class="cherry-petal" style="left: 55vw; animation-delay: 0.7s; animation-duration: 5.0s;"></div>
-                            <div class="cherry-petal" style="left: 70vw; animation-delay: 0.9s; animation-duration: 4.6s;"></div>
-                            <div class="cherry-petal" style="left: 85vw; animation-delay: 1.1s; animation-duration: 5.3s;"></div>
-                        </div>
-                    """, unsafe_allow_html=True)
 
                 # --- 顯示報告介面 ---
                 col_sc, col_det = st.columns([1, 2])

@@ -20,9 +20,9 @@ st.markdown("""
     .stButton > button { background-color: #D4AF37 !important; color: #121212 !important; font-weight: bold !important; border-radius: 8px !important; }
     .check-title { font-weight: bold; color: #EAEAEA; font-size: 16px; }
     .check-reason { color: #AAA; font-size: 13.5px; margin-top: 6px; line-height: 1.4; }
-    .status-pass { background-color: #1A3E2A; color: #2DCC70; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: bold; border: 1px solid #2DCC70; }
-    .status-mid { background-color: #3E321A; color: #F1C40F; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: bold; border: 1px solid #F1C40F; }
-    .status-fail { background-color: #3E1A1A; color: #E74C3C; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: bold; border: 1px solid #E74C3C; }
+    .status-pass { background-color: #1A3E2A; color: #2DCC70; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: bold; border: 1px solid #2DCC70; min-width: 80px; text-align: center; }
+    .status-mid { background-color: #3E321A; color: #F1C40F; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: bold; border: 1px solid #F1C40F; min-width: 80px; text-align: center; }
+    .status-fail { background-color: #3E1A1A; color: #E74C3C; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: bold; border: 1px solid #E74C3C; min-width: 80px; text-align: center; }
     input[data-testid="stTextInput"] { background-color: #1E1E1E !important; color: #EAEAEA !important; border: 1px solid #333 !important; }
 </style>
 """, unsafe_allow_html=True)
@@ -60,56 +60,60 @@ if analyze_btn and stock_id:
             score = 0; results = []
             
             # 1. 週轉率 (5%)
-            ok = turnover > 8.0; score += 5 if ok else 0
-            results.append(("週轉率 > 8%", f"實測 {turnover:.2f}%", "通過" if ok else "未過", "status-pass" if ok else "status-fail", "週轉率代表換手動能，8% 以上代表具備短線熱度。"))
+            ok = turnover > 8.0; item_score = 5 if ok else 0; score += item_score
+            results.append(("週轉率 > 8%", f"實測 {turnover:.2f}%", f"+{item_score}分", "status-pass" if ok else "status-fail", "週轉率代表換手動能，8% 以上代表具備短線熱度。"))
             
-            # 2. KD 位階 (20%) - 關鍵修改
+            # 2. KD 位階 (20%)
             k_val = today['K']
-            if 20 <= k_val <= 30:
-                kd_score = 20; kd_status = "高分通過"; kd_cls = "status-pass"
-                kd_reason = "目前 KD 處於 20-30 低檔起漲區，最具備爆發潛力與風險報酬比。"
-            elif 40 <= k_val <= 65:
-                kd_score = 10; kd_status = "中分通過"; kd_cls = "status-mid"
-                kd_reason = "目前 KD 處於 40-65 中位階，動能發酵中但需留意上方空間。"
-            elif k_val > 70:
-                kd_score = 0; kd_status = "低分未過"; kd_cls = "status-fail"
-                kd_reason = "目前 KD 超過 70 進入高檔過熱區，追高風險增加，故不給分。"
-            else:
-                kd_score = 0; kd_status = "未達標"; kd_cls = "status-fail"
-                kd_reason = "KD 位階尚未進入有效攻擊區間。"
+            if 20 <= k_val <= 30: kd_score = 20; kd_status = "+20分"; kd_cls = "status-pass"; kd_r = "KD 處於 20-30 低檔起漲區，最具備爆發潛力。"
+            elif 40 <= k_val <= 65: kd_score = 10; kd_status = "+10分"; kd_cls = "status-mid"; kd_r = "KD 處於 40-65 中位階，動能發酵中。"
+            else: kd_score = 0; kd_status = "+0分"; kd_cls = "status-fail"; kd_r = f"K值 {k_val:.1f} 不在加分區間 (過熱或過冷)。"
             score += kd_score
-            results.append(("KD 位階判定", f"目前 K 值: {k_val:.1f}", kd_status, kd_cls, kd_reason))
+            results.append(("KD 位階判定", f"目前 K 值: {k_val:.1f}", kd_status, kd_cls, kd_r))
 
-            # 3. 均線 (20%)
-            ok = today['5MA'] > yest['5MA'] and today['10MA'] > yest['10MA'] and today['20MA'] > yest['20MA']; score += 20 if ok else 0
-            results.append(("均線全面上揚", "短中長期均線翻揚", "通過" if ok else "未過", "status-pass" if ok else "status-fail", "均線同向翻揚是趨勢確認的最強訊號。"))
+            # 3. 均線翻揚 (20%)
+            ok = today['5MA'] > yest['5MA'] and today['10MA'] > yest['10MA'] and today['20MA'] > yest['20MA']
+            item_score = 20 if ok else 0; score += item_score
+            results.append(("均線全面上揚", "短中長期均線翻揚", f"+{item_score}分", "status-pass" if ok else "status-fail", "均線同向翻揚是趨勢確認的最強訊號。"))
             
-            # 9. 量價配合 (30%) - 權重提高
-            ok = today['Volume'] > today['5VMA'] and today['Close'] > today['Open']; score += 30 if ok else 0
-            results.append(("量增紅K攻擊", "成交量大於5T均量", "通過" if ok else "未過", "status-pass" if ok else "status-fail", "帶量紅K代表主力表態攻擊，是權重最高的動能指標。"))
+            # 9. 量價配合 (30%)
+            ok = today['Volume'] > today['5VMA'] and today['Close'] > today['Open']
+            item_score = 30 if ok else 0; score += item_score
+            results.append(("量增紅K攻擊", "帶量且收紅K", f"+{item_score}分", "status-pass" if ok else "status-fail", "帶量紅K代表主力表態攻擊，權重最高。"))
 
-            # 其他指標 (維持邏輯)
+            # 其他指標 (各 5%)
             for ma, lbl in [('5MA','5T'),('10MA','10T'),('20MA','20T')]:
-                ok_st = today['Close'] > today[ma]; score += 5 if ok_st else 0
-                results.append((f"站穩 {lbl}", f"守住 {lbl} 支撐", "通過" if ok_st else "未過", "status-pass" if ok_st else "status-fail", f"股價維持在 {lbl} 之上，代表強勢格局未破。"))
+                ok_st = today['Close'] > today[ma]; item_score = 5 if ok_st else 0; score += item_score
+                results.append((f"站穩 {lbl}", f"股價 > {lbl}", f"+{item_score}分", "status-pass" if ok_st else "status-fail", f"股價維持在 {lbl} 之上，代表強勢格局未破。"))
             
-            ok_60 = today['Close'] > df.iloc[-60]['Close']; score += 5 if ok_60 else 0
-            results.append(("季線扣抵", "60MA 趨勢向上", "通過" if ok_60 else "未過", "status-pass" if ok_60 else "status-fail", "股價大於60日前價格，代表中長線趨勢翻多。"))
-            ok_macd = (today['DIF'] - today['MACD']) > 0; score += 5 if ok_macd else 0
-            results.append(("DIF-MACD > 0", "柱狀翻紅", "通過" if ok_macd else "未過", "status-pass" if ok_macd else "status-fail", "動能指標轉正，代表攻擊力道正在增強。"))
+            ok_60 = today['Close'] > df.iloc[-60]['Close']; item_score = 5 if ok_60 else 0; score += item_score
+            results.append(("季線扣抵有過", "60MA 趨勢向上", f"+{item_score}分", "status-pass" if ok_60 else "status-fail", "股價大於60日前價格，長線趨勢翻多。"))
+            
+            ok_macd = (today['DIF'] - today['MACD']) > 0; item_score = 5 if ok_macd else 0; score += item_score
+            results.append(("DIF-MACD > 0", "柱狀翻紅", f"+{item_score}分", "status-pass" if ok_macd else "status-fail", "動能指標轉正，代表攻擊力道增強。"))
 
-            # --- 顯示報告 ---
+            # --- 顯示總分報告 ---
             col_sc, col_det = st.columns([1, 2])
             with col_sc:
                 c = "#2DCC70" if score >= 80 else "#F1C40F" if score >= 70 else "#E74C3C"
                 st.markdown(f'<div class="score-circle" style="border-color:{c}"><div class="score-text">{score}</div></div>', unsafe_allow_html=True)
+                st.markdown(f"<p style='text-align:center; color:{c}; font-weight:bold; margin-top:10px;'>診斷總分</p>", unsafe_allow_html=True)
             
             with col_det:
-                st.markdown(f"## {stock_id} 模擬診斷報告")
-                if score >= 80: st.success("🎯 **值得買入**：指標高度契合起漲邏輯。"); st.balloons()
-                elif score >= 70: st.warning("⚠️ **列入觀察**：分數達標但仍有進步空間。")
-                else: st.error("❄️ **暫不參考**：總分未達 60 分門檻。")
+                st.markdown(f"## {stock_id} 模擬診斷分析")
+                if score >= 80: st.success("🎯 **值得買入**：技術面具備強大起漲動能！"); st.balloons()
+                elif score >= 70: st.warning("⚠️ **列入觀察**：分數達標，建議確認大盤走勢。")
+                elif score >= 60: st.info("⚪ **保守看對**：分數剛好及格，建議等待更明確訊號。")
+                else: st.error("❄️ **暫不參考**：總分未達門檻，動能不足。")
 
-            st.markdown("### 🔍 詳細分析清單")
-            for t, d, s, cls, r in results:
-                st.markdown(f'<div class="check-item"><div class="check-content"><div class="check-title">{t} ({d})</div><div class="check-reason"><b>教練分析：</b>{r}</div></div><div class="{cls}">{s}</div></div>', unsafe_allow_html=True)
+            st.markdown("### 🔍 各項得分細節")
+            for title, data, score_tag, cls, reason in results:
+                st.markdown(f"""
+                    <div class="check-item">
+                        <div style="flex: 1;">
+                            <div class="check-title">{title} ({data})</div>
+                            <div class="check-reason"><b>分析：</b>{reason}</div>
+                        </div>
+                        <div class="{cls}">{score_tag}</div>
+                    </div>
+                """, unsafe_allow_html=True)

@@ -2,6 +2,7 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import requests
+import time
 
 st.set_page_config(page_title="股市短線評級 App", page_icon="⚡")
 st.title("⚡ 專屬股市短線評級 - 強勢股掃描器")
@@ -31,12 +32,17 @@ def get_tw_stock_name(stock_no):
         
     return None, ".TW" 
 
-# --- 🚀 真實連線：抓取證交所/櫃買中心三大法人真實買賣超 ---
+# --- 🚀 核心升級：抓取指定「單一日期」的真實籌碼 ---
 @st.cache_data(ttl=3600)
-def get_institutional_buy(stock_no):
-    # 1. 嘗試抓取上市 (TWSE) 籌碼
+def get_single_day_inst_buy(stock_no, date_obj):
+    # 將日期轉換為台股 API 格式 (TWSE用西元, TPEx用民國)
+    twse_date = date_obj.strftime("%Y%m%d")
+    roc_year = date_obj.year - 1911
+    tpex_date = f"{roc_year}/{date_obj.strftime('%m/%d')}"
+    
+    # 1. 嘗試抓取上市 (TWSE)
     try:
-        url = "https://www.twse.com.tw/fund/T86?response=json&selectType=ALLBUT0999"
+        url = f"https://www.twse.com.tw/exchangeReport/T86?response=json&date={twse_date}&selectType=ALLBUT0999"
         res = requests.get(url, timeout=5).json()
         if res.get('stat') == 'OK':
             fields = res['fields']
@@ -45,24 +51,25 @@ def get_institutional_buy(stock_no):
             total_idx = fields.index('三大法人買賣超股數')
             for row in data:
                 if row[code_idx] == stock_no:
-                    # 官方單位是股數，除以1000換算成張數
                     return int(row[total_idx].replace(',', '')) // 1000 
     except:
         pass
+        
+    # 稍微暫停避免被交易所封鎖 IP
+    time.sleep(0.2)
     
-    # 2. 嘗試抓取上櫃 (TPEx) 籌碼
+    # 2. 嘗試抓取上櫃 (TPEx)
     try:
-        url = "https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_result.php?l=zh-tw&o=json&se=EW&t=D"
+        url = f"https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_result.php?l=zh-tw&o=json&se=EW&t=D&d={tpex_date}"
         res = requests.get(url, timeout=5).json()
         if 'aaData' in res:
             for row in res['aaData']:
                 if row[0] == stock_no:
-                    # 上櫃的第10欄位通常為三大法人合計買賣超
                     return int(row[10].replace(',', '')) // 1000
     except:
         pass
         
-    return 0 # 若假日無資料或查無此檔，回傳 0
+    return 0 
 
 if st.button("啟動評級，開始分析！"):
     stock_name, suffix = get_tw_stock_name(stock_id)
@@ -75,7 +82,7 @@ if st.button("啟動評級，開始分析！"):
         except:
             stock_name = "未知名稱"
             
-    st.info(f"正在分析： {stock_id} {stock_name} ...")
+    st.info(f"正在連線交易所，分析 {stock_id} {stock_name} 的近三日數據...")
     
     df = ticker.history(period="1y")
     
@@ -108,15 +115,39 @@ if st.button("啟動評級，開始分析！"):
         today = df.iloc[-1]
         yesterday = df.iloc[-2]
         
-        # 取得周轉率與籌碼
+        # --- 近三日籌碼計算與趨勢分析 ---
+        last_3_dates = df.index[-3:] # 抓取最近 3 個交易日
+        inst_data = []
+        for d in last_3_dates:
+            inst_data.append(get_single_day_inst_buy(stock_id, d))
+            
+        v1, v2, v3 = inst_data[0], inst_data[1], inst_data[2] # v1是最舊(三天前)，v3是最新(今天)
+        avg_inst = sum(inst_data) / 3
+        
+        # 籌碼趨勢判定
+        trend_text = "籌碼震盪整理"
+        if v3 > 0 and v2 > 0 and v1 > 0:
+            if v3 > v2 and v2 > v1:
+                trend_text = "🔥 連續三天買超，且買盤【逐漸擴大】"
+            else:
+                trend_text = "📈 連續三天買超，籌碼穩定沉澱"
+        elif v3 < 0 and v2 < 0 and v1 < 0:
+            if v3 < v2 and v2 < v1:
+                trend_text = "⚠️ 連續三天賣超，且賣壓【逐漸沉重】"
+            else:
+                trend_text = "📉 連續三天賣超，籌碼持續流出"
+        elif v3 > 0 and v2 <= 0:
+            trend_text = "✨ 由賣轉買，法人可能開始建倉"
+        elif v3 < 0 and v2 >= 0:
+            trend_text = "🚨 由買轉賣，法人出現倒貨跡象"
+            
+        # 周轉率計算
         shares_out = ticker.info.get('sharesOutstanding', 0)
         today_volume = float(today['Volume'])
         if shares_out and shares_out > 0:
             real_turnover = (today_volume / shares_out) * 100
         else:
             real_turnover = 0 
-            
-        inst_buy_lots = get_institutional_buy(stock_id)
 
         # --- 顯示量能與籌碼數據 ---
         st.write("### 📊 量能與籌碼資訊")
@@ -124,7 +155,9 @@ if st.button("啟動評級，開始分析！"):
         col1.metric("今日成交量", f"{int(today_volume):,} 股")
         col2.metric("周轉率", f"{real_turnover:.2f} %" if real_turnover > 0 else "無法取得")
         col3.metric("5T 均量", f"{int(today['5VMA']):,} 股")
-        col4.metric("三大法人買賣超", f"{inst_buy_lots:,} 張")
+        col4.metric("近三日平均買賣", f"{int(avg_inst):,} 張")
+        
+        st.info(f"**三大法人近三日動向：** {v1:,} 張 ➡️ {v2:,} 張 ➡️ {v3:,} 張 ({trend_text})")
 
         # --- 10 大條件判定 ---
         st.subheader("📋 核心指標檢驗報告")
@@ -155,14 +188,14 @@ if st.button("啟動評級，開始分析！"):
         else:
             st.error("❌ 3. 均線尚未全面上揚")
 
-        # 4. 籌碼買超 (真實數據)
-        if inst_buy_lots > 0:
-            st.success(f"✅ 4. 籌碼偏多：三大法人買超 {inst_buy_lots:,} 張")
+        # 4. 籌碼買超 (三日均量與趨勢)
+        if avg_inst > 0:
+            st.success(f"✅ 4. 籌碼偏多：近三日平均買超 {int(avg_inst):,} 張")
             score += 1
-        elif inst_buy_lots < 0:
-            st.error(f"❌ 4. 籌碼偏空：三大法人賣超 {abs(inst_buy_lots):,} 張")
+        elif avg_inst < 0:
+            st.error(f"❌ 4. 籌碼偏空：近三日平均賣超 {abs(int(avg_inst)):,} 張")
         else:
-            st.error(f"❌ 4. 籌碼無明顯買賣超或無資料 (0 張)")
+            st.error(f"❌ 4. 籌碼無明顯動向 (平均 0 張)")
 
         # 5. 大於季線扣抵
         if float(today['Close']) > float(df.iloc[-60]['Close']):

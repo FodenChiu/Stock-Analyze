@@ -59,35 +59,30 @@ if analyze_btn and stock_id:
             
             score = 0; results = []
             
-            # 1. 週轉率 (5%)
+            # 權重判定
             ok = turnover > 8.0; iscore = 5 if ok else 0; score += iscore
             results.append(("週轉率 > 8%", f"實測 {turnover:.2f}%", f"+{iscore}分", "status-pass" if ok else "status-fail", "週轉率代表市場熱度與換手動能。"))
             
-            # 2. KD 位階 (25%)
             k_val = today['K']
-            if 20 <= k_val <= 30: ks, k_tag, kc, kr = 25, "+25分", "status-pass", "KD 20-30 低檔起漲區，最具備噴發潛力。"
+            if 20 <= k_val <= 30: ks, k_tag, kc, kr = 25, "+25分", "status-pass", "KD 20-30 低檔起漲區，具備高度爆發力。"
             elif 40 <= k_val <= 65: ks, k_tag, kc, kr = 12, "+12分", "status-mid", "KD 40-65 中位階，動能穩定發酵中。"
-            else: ks, k_tag, kc, kr = 0, "+0分", "status-fail", f"K值 {k_val:.1f} 不在加分區間。"
+            else: ks, k_tag, kc, kr = 0, "+0分", "status-fail", f"K值 {k_val:.1f} 處於非加分區間。"
             score += ks; results.append(("KD 位階判定", f"K值: {k_val:.1f}", k_tag, kc, kr))
 
-            # 3. 均線翻揚 (20%)
             ok = today['5MA'] > yest['5MA'] and today['10MA'] > yest['10MA'] and today['20MA'] > yest['20MA']
             iscore = 20 if ok else 0; score += iscore
             results.append(("短期均線翻揚", "5/10/20T 同步向上", f"+{iscore}分", "status-pass" if ok else "status-fail", "趨勢一致向上，多頭共識強烈。"))
 
-            # 4. 均線支撐 (15%)
             c = today['Close']; m5 = today['5MA']; m10 = today['10MA']; m20 = today['20MA']
             count = sum([c > m5, c > m10, c > m20])
             ma_s = count * 5; score += ma_s
             results.append(("均線支撐強度", f"站穩 {count} 條線", f"+{ma_s}分", "status-pass" if count==3 else "status-mid" if count>=1 else "status-fail", f"收盤({c:.2f})與 5/10/20T 支撐對比。"))
 
-            # 5. 量增紅K攻擊 (25%)
             v_vol, v_avg = int(today['Volume']/1000), int(today['5VMA']/1000)
             ok = today['Volume'] > today['5VMA'] and today['Close'] > today['Open']
             iscore = 25 if ok else 0; score += iscore
             results.append(("量增紅K攻擊", f"{v_vol:,}張 / 5T均 {v_avg:,}張", f"+{iscore}分", "status-pass" if ok else "status-fail", "量能放大且收紅K，為主力的攻擊表態。"))
 
-            # 6. 季線與 MACD (各 5%)
             ok60 = today['Close'] > df.iloc[-60]['Close']; s60 = 5 if ok60 else 0; score += s60
             results.append(("季線趨勢向上", "大於 60 日前價格", f"+{s60}分", "status-pass" if ok60 else "status-fail", "中長線多頭底氣判定。"))
             okm = (today['DIF'] - today['MACD']) > 0; sm = 5 if okm else 0; score += sm
@@ -96,8 +91,8 @@ if analyze_btn and stock_id:
             # --- 顯示報告介面 ---
             col_sc, col_det = st.columns([1, 2])
             with col_sc:
-                # 🎯 修改燈號邏輯：75 以上綠燈，70 以上黃燈
-                c_hex = "#2DCC70" if score >= 75 else "#F1C40F" if score >= 70 else "#E74C3C"
+                # 🎯 門檻調整：80 買入, 75 觀察, 75 以下暫不考慮
+                c_hex = "#2DCC70" if score >= 80 else "#F1C40F" if score >= 75 else "#E74C3C"
                 st.markdown(f'<div class="score-circle" style="border-color:{c_hex}"><div class="score-text">{score}</div></div>', unsafe_allow_html=True)
                 st.markdown(f"<p style='text-align:center; color:{c_hex}; font-weight:bold; margin-top:10px;'>診斷總分</p>", unsafe_allow_html=True)
             
@@ -107,13 +102,13 @@ if analyze_btn and stock_id:
                 <div class="weight-box">
                     <b>📈 評分權重說明：</b><br>
                     量增紅K (25%) | KD 位階 (25%) | 均線翻揚 (20%) | 均線支撐 (15%) | 週轉率 (5%) | 季線趨勢 (5%) | MACD (5%)<br>
-                    <b>判定標準：</b> 🟢 75+ 值得買入 | 🟡 70+ 列入觀察 | 🔴 70- 暫不參考
+                    <b>判定標準：</b> 🟢 80+ 值得買入 | 🟡 75+ 列入觀察 | 🔴 75- 暫不參考
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # 🎯 修改分級文字
-                if score >= 75: st.success("🎯 **值得買入**：技術面具備強大起漲動能！")
-                elif score >= 70: st.warning("⚠️ **列入觀察**：分數達標，建議確認市場氛圍。")
+                # 🎯 文字邏輯調整
+                if score >= 80: st.success("🎯 **值得買入**：技術面具備強大起漲動能！")
+                elif score >= 75: st.warning("⚠️ **列入觀察**：分數達標，建議確認市場氛圍。")
                 else: st.error("❄️ **暫不參考**：總分未達門檻。")
 
             st.markdown("### 🔍 各項得分細節")

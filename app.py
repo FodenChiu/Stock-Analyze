@@ -25,15 +25,15 @@ st.markdown("""
     .status-pass { background-color: #1A3E2A; color: #2DCC70; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: bold; border: 1px solid #2DCC70; min-width: 90px; text-align: center; }
     .status-mid { background-color: #3E321A; color: #F1C40F; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: bold; border: 1px solid #F1C40F; min-width: 90px; text-align: center; }
     .status-fail { background-color: #3E1A1A; color: #E74C3C; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: bold; border: 1px solid #E74C3C; min-width: 90px; text-align: center; }
-    input[data-testid="stTextInput"] { background-color: #1E1E1E !important; color: #EAEAEA !important; border: 1px solid #333 !important; }
+    input[data-testid="stTextInput"] { background-color: #1E1E1E !important; color: #EAEAEA !important; border: 1px solid #333 !important; text-align: center; font-size: 18px !important;}
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<h1 class="main-title">⚡ 台股短線買入評級</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title" style="text-align:center;">⚡ 台股短線買入評級</h1>', unsafe_allow_html=True)
 
 # --- 🎯 數據庫引擎 ---
 
-@st.cache_data(ttl=86400) # 緩存一天
+@st.cache_data(ttl=86400)
 def fetch_stock_mapping():
     try:
         url = "https://api.finmindtrade.com/api/v4/data"
@@ -44,7 +44,6 @@ def fetch_stock_mapping():
         return {}
     except: return {}
 
-# 💡 新增：專門用來安全抓取「發行總股數」的微型函數 (緩存 24 小時，絕不觸發封鎖)
 @st.cache_data(ttl=86400)
 def fetch_total_shares(sid):
     try:
@@ -72,22 +71,25 @@ def fetch_finmind_data(sid):
         for col in ['Open', 'High', 'Low', 'Close', 'Volume']: df[col] = pd.to_numeric(df[col])
             
         # 抓籌碼面
-        res_c = requests.get(url, params={"dataset": "TaiwanStockShareholding", "data_id": sid, "start_date": (datetime.datetime.now() - datetime.timedelta(days=15)).strftime("%Y-%m-%d"), "end_date": end_date, "token": FINMIND_TOKEN}, timeout=10).json()
+        res_c = requests.get(url, params={"dataset": "TaiwanStockShareholding", "data_id": sid, "start_date": (datetime.datetime.now() - datetime.timedelta(days=20)).strftime("%Y-%m-%d"), "end_date": end_date, "token": FINMIND_TOKEN}, timeout=10).json()
         df_chip = pd.DataFrame(res_c.get("data", []))
         
         return df, df_chip
     except Exception as e: return "error", str(e)
 
 # --- 介面 ---
+st.write("") # 增加一些頂部留白
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
     st.markdown('<p class="input-label" style="text-align:center;">📍 請輸入台股代號</p>', unsafe_allow_html=True)
-    stock_id = st.text_input("s_id", value="", label_visibility="collapsed", placeholder="例如: 1301")
+    stock_id = st.text_input("s_id", value="", label_visibility="collapsed", placeholder="例如: 2330")
+    st.write("")
     analyze_btn = st.button("🚀 啟動全自動深度診斷")
 
 stock_mapping = fetch_stock_mapping()
 
 if analyze_btn and stock_id:
+    st.markdown("---") # 分隔線
     stock_name = stock_mapping.get(stock_id, "")
     display_name = f"{stock_id} {stock_name}" if stock_name else stock_id
 
@@ -107,7 +109,7 @@ if analyze_btn and stock_id:
             
             today, yest = df.iloc[-1], df.iloc[-2]
             
-            # --- 🎯 取回精確的總發行股數，計算最純粹的週轉率 ---
+            # --- 🎯 精算發行總股數與週轉率 ---
             total_shares = fetch_total_shares(stock_id)
             if total_shares > 0:
                 turnover = (today['Volume'] / total_shares) * 100
@@ -118,7 +120,7 @@ if analyze_btn and stock_id:
             
             score = 0; tech_results = []; chip_results = []
             
-            # 1. 週轉率 (完全獨立計算，不受外資影響)
+            # 1. 週轉率
             if turnover > 8: ts, tc = 5, "status-pass"
             elif turnover > 5: ts, tc = 3, "status-mid"
             elif turnover > 1: ts, tc = 1, "status-fail"
@@ -158,10 +160,11 @@ if analyze_btn and stock_id:
             ups = 10 if ok_up else 0; score += ups
             tech_results.append(("短期均線翻揚", "5/10/20T 同步向上", f"+{ups}分", "status-pass" if ok_up else "status-fail", "模擬分析：多頭共識強烈。"))
 
-            # 6. 籌碼三日趨勢
+            # 🎯 6. 籌碼五日趨勢 (改為 5 天)
             chip_data_list = []
             if not df_chip.empty and "ForeignInvestmentSharesRatio" in df_chip.columns:
-                chip_data_list = df_chip[['date', 'ForeignInvestmentSharesRatio']].tail(3).values.tolist()
+                # 抓取最後 5 筆交易日資料
+                chip_data_list = df_chip[['date', 'ForeignInvestmentSharesRatio']].tail(5).values.tolist()
 
             if chip_data_list and len(chip_data_list) >= 2:
                 oldest_date, oldest_val = chip_data_list[0]
@@ -175,11 +178,11 @@ if analyze_btn and stock_id:
                 score += cs
                 
                 status_msg = "增加，有利多頭" if diff > 0 else "減少，籌碼鬆動"
-                chip_results.append(("外資持股 3 日趨勢", f"自動抓取: {oldest_val}% → {latest_val}%", f"+{cs}分", cc, f"模擬分析：從 {oldest_date} 至 {latest_date} 外資持股{status_msg}。"))
+                chip_results.append(("外資持股 5 日趨勢", f"自動抓取: {oldest_val}% → {latest_val}%", f"+{cs}分", cc, f"模擬分析：從 {oldest_date} 至 {latest_date} 外資持股{status_msg}。"))
             else:
-                chip_results.append(("外資持股 3 日趨勢", "無自動數據", "+0分", "status-fail", "模擬分析：無法抓取該檔股票的籌碼數據(可能為剛上市或無外資)。"))
+                chip_results.append(("外資持股 5 日趨勢", "無自動數據", "+0分", "status-fail", "模擬分析：無法抓取該檔股票的籌碼數據(可能為剛上市或無外資)。"))
 
-            # --- 顯示 ---
+            # --- 顯示報告結果 ---
             col_res_sc, col_res_det = st.columns([1, 2])
             with col_res_sc:
                 color = "#2DCC70" if score >= 80 else "#F1C40F" if score >= 75 else "#E74C3C"
@@ -197,21 +200,21 @@ if analyze_btn and stock_id:
             st.markdown("### 🔍 技術面得分細節")
             for t, d, stg, cls, r in tech_results: st.markdown(f'<div class="check-item"><div style="flex: 1;"><div class="check-title">{t} ({d})</div><div class="check-reason">{r}</div></div><div class="{cls}">{stg}</div></div>', unsafe_allow_html=True)
 
-# --- 固定表 ---
-st.markdown("""
-<div class="weight-box">
-    <h3 style="color:#D4AF37; margin-top:0;">📊 買入評級 - 得分細節說明</h3>
-    <table style="width:100%; color:#BBB; font-size:14px;">
-        <tr><td style="color:#EAEAEA;"><b>KD 位階 (25分)</b></td><td>25-40(25分) | 45-60(20分) | 65-70(10分)</td></tr>
-        <tr><td style="color:#EAEAEA;"><b>量增紅K (20分)</b></td><td>成交量 > 5T 均量 且 收紅 K</td></tr>
-        <tr><td style="color:#EAEAEA;"><b>籌碼三日 (15分)</b></td><td>增加率 ≥2%(15分) | ≥1.5%(10分) | ≥1%(5分)</td></tr>
-        <tr><td style="color:#EAEAEA;"><b>均線支撐 (10分)</b></td><td>站穩 5/10/20T(10分) | 5/10T(5分) | 5T(3分)</td></tr>
-        <tr><td style="color:#EAEAEA;"><b>均線翻揚 (10分)</b></td><td>5T、10T、20T 同步向上</td></tr>
-        <tr><td style="color:#EAEAEA;"><b>MACD (10分)</b></td><td>DIF > MACD 柱狀翻紅</td></tr>
-        <tr><td style="color:#EAEAEA;"><b>週轉率 (5分)</b></td><td>>8%(5分) | >5%(3分) | >1%(1分)</td></tr>
-        <tr><td style="color:#EAEAEA;"><b>季線趨勢 (5分)</b></td><td>現價 > 60 日前價格</td></tr>
-    </table>
-    <p style="margin-top:15px; font-weight:bold; color:#D4AF37;">🟢 80+ 值得買入 | 🟡 75+ 列入觀察 | 🔴 75- 暫不參考</p>
-</div>
-<div style="font-size: 12px; color: #777; text-align: center;">⚠️ 免責聲明：本工具僅為模擬用途，不構成投資建議。</div>
-""", unsafe_allow_html=True)
+            # --- 🎯 報告跑出來後，才在最底下顯示說明表 ---
+            st.markdown("""
+            <div class="weight-box">
+                <h3 style="color:#D4AF37; margin-top:0;">📊 買入評級 - 得分細節說明</h3>
+                <table style="width:100%; color:#BBB; font-size:14px;">
+                    <tr><td style="color:#EAEAEA; padding:5px 0;"><b>KD 位階 (25分)</b></td><td>25-40(25分) | 45-60(20分) | 65-70(10分)</td></tr>
+                    <tr><td style="color:#EAEAEA; padding:5px 0;"><b>量增紅K (20分)</b></td><td>成交量 > 5T 均量 且 收紅 K</td></tr>
+                    <tr><td style="color:#EAEAEA; padding:5px 0;"><b>籌碼五日 (15分)</b></td><td>增加率 ≥2%(15分) | ≥1.5%(10分) | ≥1%(5分)</td></tr>
+                    <tr><td style="color:#EAEAEA; padding:5px 0;"><b>均線支撐 (10分)</b></td><td>站穩 5/10/20T(10分) | 5/10T(5分) | 5T(3分)</td></tr>
+                    <tr><td style="color:#EAEAEA; padding:5px 0;"><b>均線翻揚 (10分)</b></td><td>5T、10T、20T 同步向上</td></tr>
+                    <tr><td style="color:#EAEAEA; padding:5px 0;"><b>MACD (10分)</b></td><td>DIF > MACD 柱狀翻紅</td></tr>
+                    <tr><td style="color:#EAEAEA; padding:5px 0;"><b>週轉率 (5分)</b></td><td>>8%(5分) | >5%(3分) | >1%(1分)</td></tr>
+                    <tr><td style="color:#EAEAEA; padding:5px 0;"><b>季線趨勢 (5分)</b></td><td>現價 > 60 日前價格</td></tr>
+                </table>
+                <p style="margin-top:15px; font-weight:bold; color:#D4AF37;">🟢 80+ 值得買入 | 🟡 75+ 列入觀察 | 🔴 75- 暫不參考</p>
+            </div>
+            <div style="font-size: 12px; color: #777; text-align: center;">⚠️ 免責聲明：數據由 FinMind 提供。本工具僅為模擬用途，不構成投資建議。</div>
+            """, unsafe_allow_html=True)

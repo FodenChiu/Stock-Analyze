@@ -1,5 +1,4 @@
 import streamlit as st
-import yfinance as yf
 import pandas as pd
 import requests
 import datetime
@@ -7,6 +6,7 @@ import datetime
 # --- 🚀 全局介面與 Token 設定 ---
 st.set_page_config(page_title="台股短線買入評級", page_icon="⚡", layout="wide")
 
+# 🔑 你的 FinMind VIP Token
 FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJkYXRlIjoiMjAyNi0wMy0xOSAyMjo1Njo0NyIsInVzZXJfaWQiOiJGb2RlbkNoaXUiLCJlbWFpbCI6InlpaGFuY2hpdTExMDZAZ21haWwuY29tIiwiaXAiOiI0OS4xNTkuMjE3LjIwMiJ9.yYlYV7Y-PPQJxR6amyp9mDsK5su2T4HsZO0oYpotMEg"
 
 st.markdown("""
@@ -31,44 +31,47 @@ st.markdown("""
 
 st.markdown('<h1 class="main-title">⚡ 台股短線買入評級</h1>', unsafe_allow_html=True)
 
-# --- 🎯 雙引擎數據庫 ---
+# --- 🎯 100% FinMind 雙引擎數據庫 ---
 @st.cache_data(ttl=900)
-def fetch_technical_data(sid):
-    try:
-        # 🛡️ 加入偽裝機制，突破 Yahoo 封鎖
-        session = requests.Session()
-        session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
-        })
-        
-        for ext in [".TW", ".TWO"]:
-            t = yf.Ticker(f"{sid}{ext}", session=session)
-            d = t.history(period="1y")
-            if not d.empty: return d, t.info
-        return None, None
-    except Exception as e: 
-        return "error", str(e)
-
-@st.cache_data(ttl=3600)
-def fetch_chip_data(sid):
+def fetch_finmind_data(sid):
     try:
         end_date = datetime.datetime.now().strftime("%Y-%m-%d")
-        start_date = (datetime.datetime.now() - datetime.timedelta(days=15)).strftime("%Y-%m-%d")
+        # 抓取過去 150 天，確保能算出 60MA 季線
+        start_date = (datetime.datetime.now() - datetime.timedelta(days=150)).strftime("%Y-%m-%d")
         url = "https://api.finmindtrade.com/api/v4/data"
-        params = {
-            "dataset": "TaiwanStockShareholding",
+        
+        # 1. 抓取技術面股價
+        price_params = {
+            "dataset": "TaiwanStockPrice",
             "data_id": sid,
             "start_date": start_date,
             "end_date": end_date,
             "token": FINMIND_TOKEN
         }
-        res = requests.get(url, params=params, timeout=10).json()
-        if res.get("msg") == "success" and len(res.get("data", [])) > 0:
-            df_chip = pd.DataFrame(res["data"])
-            if "ForeignInvestmentSharesRatio" in df_chip.columns:
-                return df_chip[['date', 'ForeignInvestmentSharesRatio']].tail(3).values.tolist()
-        return None
-    except: return None
+        res_p = requests.get(url, params=price_params, timeout=10).json()
+        if res_p.get("msg") != "success" or len(res_p.get("data", [])) == 0:
+            return None, None
+            
+        df = pd.DataFrame(res_p["data"])
+        # 將 FinMind 欄位轉換為標準格式 (Trading_Volume 為股數)
+        df.rename(columns={'open': 'Open', 'max': 'High', 'min': 'Low', 'close': 'Close', 'Trading_Volume': 'Volume'}, inplace=True)
+        for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
+            df[col] = pd.to_numeric(df[col])
+            
+        # 2. 抓取外資籌碼面
+        chip_params = {
+            "dataset": "TaiwanStockShareholding",
+            "data_id": sid,
+            "start_date": (datetime.datetime.now() - datetime.timedelta(days=15)).strftime("%Y-%m-%d"),
+            "end_date": end_date,
+            "token": FINMIND_TOKEN
+        }
+        res_c = requests.get(url, params=chip_params, timeout=10).json()
+        df_chip = pd.DataFrame(res_c.get("data", []))
+        
+        return df, df_chip
+    except Exception as e:
+        return "error", str(e)
 
 # --- 介面輸入 ---
 col1, col2, col3 = st.columns([1, 2, 1])
@@ -78,17 +81,13 @@ with col2:
     analyze_btn = st.button("🚀 啟動全自動深度診斷")
 
 if analyze_btn and stock_id:
-    with st.spinner(f"正在透過雙引擎分析 {stock_id} ..."):
-        df, info = fetch_technical_data(stock_id)
-        chip_data = fetch_chip_data(stock_id)
+    with st.spinner(f"正在透過 FinMind 雙引擎分析 {stock_id} ..."):
+        df, df_chip = fetch_finmind_data(stock_id)
         
-        # 開發者除錯用 (如果在電腦版可以看到實際報錯內容)
-        if df == "error": 
-            st.error("⚠️ 伺服器連線忙碌中，請稍後再試。")
-            st.info(f"技術資訊: {info}") 
-        elif df is None: st.error(f"❌ 查無代號「{stock_id}」")
+        if df is None: st.error(f"❌ 查無代號「{stock_id}」的資料，請確認是否為有效台股代號。")
+        elif isinstance(df, str) and df == "error": st.error("⚠️ 伺服器連線發生錯誤，請稍後再試。")
         else:
-            # 運算指標
+            # 運算技術指標
             df['5MA'] = df['Close'].rolling(5).mean(); df['10MA'] = df['Close'].rolling(10).mean(); df['20MA'] = df['Close'].rolling(20).mean()
             df['5VMA'] = df['Volume'].rolling(5).mean()
             df['9L'], df['9H'] = df['Low'].rolling(9).min(), df['High'].rolling(9).max()
@@ -98,8 +97,19 @@ if analyze_btn and stock_id:
             df['MACD'] = df['DIF'].ewm(span=9, adjust=False).mean()
             
             today, yest = df.iloc[-1], df.iloc[-2]
-            shares = info.get('sharesOutstanding', 0) if isinstance(info, dict) else 0
-            turnover = (today['Volume'] / shares * 100) if shares else 0
+            
+            # --- 精算發行總股數與週轉率 ---
+            total_shares = 0
+            chip_data_list = []
+            if not df_chip.empty and "ForeignInvestmentSharesRatio" in df_chip.columns:
+                latest_chip = df_chip.iloc[-1]
+                ratio = pd.to_numeric(latest_chip.get('ForeignInvestmentSharesRatio', 0))
+                f_shares = pd.to_numeric(latest_chip.get('ForeignInvestmentRemainShares', 0))
+                # 利用：外資持股數 / 外資持股比例 = 發行總股數
+                if ratio > 0: total_shares = f_shares / (ratio / 100)
+                chip_data_list = df_chip[['date', 'ForeignInvestmentSharesRatio']].tail(3).values.tolist()
+            
+            turnover = (today['Volume'] / total_shares * 100) if total_shares > 0 else 0
             
             score = 0; tech_results = []; chip_results = []
             
@@ -128,24 +138,27 @@ if analyze_btn and stock_id:
             score += mas; tech_results.append(("短期均線支撐", f"收盤:{c_val:.1f}", f"+{mas}分", mac, f"模擬分析：{mam}"))
             
             # 4. 量增紅K攻擊 (20分)
+            # FinMind 的 Volume 是股數，轉換成張數 (/1000) 顯示
             ok_v = today['Volume'] > today['5VMA'] and today['Close'] > today['Open']
             vs = 20 if ok_v else 0; score += vs
-            tech_results.append(("量增紅K攻擊", f"{int(today['Volume']/1000):,}張", f"+{vs}分", "status-pass" if ok_v else "status-fail", "模擬分析：主力攻擊表態。"))
+            v_vol, v_avg = int(today['Volume']/1000), int(today['5VMA']/1000)
+            tech_results.append(("量增紅K攻擊", f"{v_vol:,}張 / 5T均 {v_avg:,}張", f"+{vs}分", "status-pass" if ok_v else "status-fail", "模擬分析：主力攻擊表態。"))
 
             # 5. 其他技術面
             ok_m = (today['DIF'] - today['MACD']) > 0; ms = 10 if ok_m else 0; score += ms
             tech_results.append(("MACD 動能", "柱狀翻紅", f"+{ms}分", "status-pass" if ok_m else "status-fail", "模擬分析：動能轉正。"))
-            ok_q = today['Close'] > df.iloc[-60]['Close']; qs = 5 if ok_q else 0; score += qs
+            ok_q = today['Close'] > df.iloc[-60]['Close'] if len(df) >= 60 else False
+            qs = 5 if ok_q else 0; score += qs
             tech_results.append(("季線趨勢", "現價 > 60日前", f"+{qs}分", "status-pass" if ok_q else "status-fail", "模擬分析：長線翻多。"))
             ok_up = today['5MA'] > yest['5MA'] and today['10MA'] > yest['10MA'] and today['20MA'] > yest['20MA']
             ups = 10 if ok_up else 0; score += ups
             tech_results.append(("短期均線翻揚", "5/10/20T 同步向上", f"+{ups}分", "status-pass" if ok_up else "status-fail", "模擬分析：多頭共識強烈。"))
 
             # 🎯 6. 全自動籌碼分析 (15分)
-            if chip_data and len(chip_data) >= 2:
-                oldest_date, oldest_val = chip_data[0]
-                latest_date, latest_val = chip_data[-1]
-                diff = latest_val - oldest_val
+            if chip_data_list and len(chip_data_list) >= 2:
+                oldest_date, oldest_val = chip_data_list[0]
+                latest_date, latest_val = chip_data_list[-1]
+                diff = float(latest_val) - float(oldest_val)
                 
                 if diff >= 2: cs, cc = 15, "status-pass"
                 elif diff >= 1.5: cs, cc = 10, "status-mid"
@@ -156,7 +169,7 @@ if analyze_btn and stock_id:
                 status_msg = "增加，有利多頭" if diff > 0 else "減少，籌碼鬆動"
                 chip_results.append(("外資持股 3 日趨勢", f"自動抓取: {oldest_val}% → {latest_val}%", f"+{cs}分", cc, f"模擬分析：從 {oldest_date} 至 {latest_date} 外資持股{status_msg}。"))
             else:
-                chip_results.append(("外資持股 3 日趨勢", "無自動數據", "+0分", "status-fail", "模擬分析：無法抓取該檔股票的籌碼數據。"))
+                chip_results.append(("外資持股 3 日趨勢", "無自動數據", "+0分", "status-fail", "模擬分析：無法抓取該檔股票的籌碼數據(可能為剛上市或無外資)。"))
 
             # --- 顯示結果 ---
             col_res_sc, col_res_det = st.columns([1, 2])
@@ -194,5 +207,5 @@ st.markdown("""
     </table>
     <p style="margin-top:15px; font-weight:bold; color:#D4AF37;">🟢 80+ 值得買入 | 🟡 75+ 列入觀察 | 🔴 75- 暫不參考</p>
 </div>
-<div style="font-size: 12px; color: #777; text-align: center;">⚠️ 免責聲明：籌碼數據由 FinMind 提供。本工具僅為模擬用途，不構成投資建議。</div>
+<div style="font-size: 12px; color: #777; text-align: center;">⚠️ 免責聲明：所有數據均由 FinMind API 提供。本工具僅為模擬用途，不構成投資建議。</div>
 """, unsafe_allow_html=True)

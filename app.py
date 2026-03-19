@@ -21,24 +21,20 @@ st.markdown("""
     .check-item { background-color: #1E1E1E; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); margin-bottom: 15px; border: 1px solid #333; display: flex; align-items: center; }
     .score-circle { background-color: #121212; border-radius: 50%; width: 130px; height: 130px; display: flex; align-items: center; justify-content: center; border: 10px solid #333; margin: 0 auto; box-shadow: 0 0 15px rgba(212, 175, 55, 0.2); }
     .score-text { font-size: 42px; font-weight: bold; color: #D4AF37; }
-    .stButton > button { background-color: #D4AF37 !important; color: #121212 !important; font-weight: bold !important; border-radius: 8px !important; width: 100%; height: 50px; }
+    .stButton > button { background-color: #D4AF37 !important; color: #121212 !important; font-weight: bold !important; border-radius: 8px !important; width: 100%; height: 50px; font-size: 16px !important; }
     .status-pass { background-color: #1A3E2A; color: #2DCC70; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: bold; border: 1px solid #2DCC70; min-width: 90px; text-align: center; }
     .status-mid { background-color: #3E321A; color: #F1C40F; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: bold; border: 1px solid #F1C40F; min-width: 90px; text-align: center; }
     .status-fail { background-color: #3E1A1A; color: #E74C3C; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: bold; border: 1px solid #E74C3C; min-width: 90px; text-align: center; }
+    /* 針對輸入框與智慧選單的暗黑風格優化 */
     input[data-testid="stTextInput"] { background-color: #1E1E1E !important; color: #EAEAEA !important; border: 1px solid #333 !important; text-align: center; font-size: 18px !important;}
+    div[data-baseweb="select"] > div { background-color: #1E1E1E !important; color: #EAEAEA !important; border: 1px solid #333 !important; font-size: 16px !important; }
+    ul[role="listbox"] { background-color: #1E1E1E !important; color: #EAEAEA !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# 首頁標題與輸入區塊 (這是唯一一開始會顯示的東西)
+# --- 首頁標題 ---
 st.markdown('<h1 class="main-title" style="text-align:center;">⚡ 台股短線買入評級</h1>', unsafe_allow_html=True)
 st.write("") 
-
-col1, col2, col3 = st.columns([1, 2, 1])
-with col2:
-    st.markdown('<p class="input-label" style="text-align:center;">📍 請輸入台股代號</p>', unsafe_allow_html=True)
-    stock_id = st.text_input("s_id", value="", label_visibility="collapsed", placeholder="例如: 2330")
-    st.write("")
-    analyze_btn = st.button("🚀 啟動全自動深度診斷")
 
 # --- 🎯 數據庫引擎 ---
 @st.cache_data(ttl=86400)
@@ -83,16 +79,40 @@ def fetch_finmind_data(sid):
         return df, df_chip
     except Exception as e: return "error", str(e)
 
-# 預載股票名稱
+# 取得股票清單字典
 stock_mapping = fetch_stock_mapping()
+stock_list = [f"{k} {v}" for k, v in stock_mapping.items()]
 
-# --- 🎯 核心邏輯區 ---
-if analyze_btn and stock_id:
+# --- 🎯 智慧輸入區塊 ---
+col1, col2, col3 = st.columns([1, 2, 1])
+with col2:
+    st.markdown('<p class="input-label" style="text-align:center;">📍 請輸入台股代號或名稱</p>', unsafe_allow_html=True)
+    
+    # 如果名單有成功抓到，就顯示智慧選單；如果網路異常抓不到，退回一般的文字輸入框
+    if stock_list:
+        selected_option = st.selectbox(
+            "s_id", 
+            options=stock_list, 
+            index=None, 
+            placeholder="🔍 支援打字搜尋 (例如: 2330 或 台積電)", 
+            label_visibility="collapsed"
+        )
+    else:
+        selected_option = st.text_input("s_id", value="", label_visibility="collapsed", placeholder="請輸入台股代號 (例如: 2330)")
+        
+    st.write("")
+    analyze_btn = st.button("🚀 啟動全自動深度診斷")
+
+
+# --- 🎯 核心邏輯區 (報告展開) ---
+if analyze_btn and selected_option:
     st.markdown("---")
-    stock_name = stock_mapping.get(stock_id, "")
-    display_name = f"{stock_id} {stock_name}" if stock_name else stock_id
+    
+    # 自動分離出前面的數字代號 (不管使用者輸入的是 '1301' 還是 '1301 台塑'，都會萃取出 '1301')
+    stock_id = str(selected_option).split(" ")[0]
+    display_name = selected_option
 
-    with st.spinner(f"正在分析 {display_name} ..."):
+    with st.spinner(f"正在深度分析 {display_name} ..."):
         df, df_chip = fetch_finmind_data(stock_id)
         
         if df is None: 
@@ -100,7 +120,7 @@ if analyze_btn and stock_id:
         elif isinstance(df, str) and df == "error": 
             st.error("⚠️ 伺服器忙碌，請稍後再試。")
         else:
-            # --- 以下所有報告內容，確保只有在成功抓取資料後才會顯示 ---
+            # 運算技術指標
             df['5MA'] = df['Close'].rolling(5).mean(); df['10MA'] = df['Close'].rolling(10).mean(); df['20MA'] = df['Close'].rolling(20).mean()
             df['5VMA'] = df['Volume'].rolling(5).mean()
             df['9L'], df['9H'] = df['Low'].rolling(9).min(), df['High'].rolling(9).max()
@@ -182,7 +202,7 @@ if analyze_btn and stock_id:
             else:
                 chip_results.append(("外資持股 5 日趨勢", "無自動數據", "+0分", "status-fail", "模擬分析：無法抓取該檔股票的籌碼數據(可能為剛上市或無外資)。"))
 
-            # --- 報告 UI 渲染 (只有資料成功才會顯示這裡) ---
+            # --- 報告 UI 渲染 ---
             col_res_sc, col_res_det = st.columns([1, 2])
             with col_res_sc:
                 color = "#2DCC70" if score >= 80 else "#F1C40F" if score >= 75 else "#E74C3C"
@@ -200,7 +220,7 @@ if analyze_btn and stock_id:
             st.markdown("### 🔍 技術面得分細節")
             for t, d, stg, cls, r in tech_results: st.markdown(f'<div class="check-item"><div style="flex: 1;"><div class="check-title">{t} ({d})</div><div class="check-reason">{r}</div></div><div class="{cls}">{stg}</div></div>', unsafe_allow_html=True)
 
-            # 說明表也一併包進來
+            # --- 評分細節說明表 (只在報告展開後顯示) ---
             st.markdown("""
             <div class="weight-box">
                 <h3 style="color:#D4AF37; margin-top:0;">📊 買入評級 - 得分細節說明</h3>

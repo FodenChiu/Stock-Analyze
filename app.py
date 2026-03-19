@@ -30,8 +30,6 @@ st.markdown("""
 # --- 標題與輸入 ---
 st.markdown('<h1 class="main-title">⚡ 台股短線買入評級</h1>', unsafe_allow_html=True)
 st.markdown('<p class="input-label">📍 請輸入台股代號 (上市櫃均可)</p>', unsafe_allow_html=True)
-
-# 🎯 修改：例如: 2330
 stock_id = st.text_input("label_hidden", value="", label_visibility="collapsed", placeholder="例如: 2330")
 analyze_btn = st.button("🚀 啟動深度診斷")
 
@@ -65,11 +63,11 @@ if analyze_btn and stock_id:
             ok = turnover > 8.0; iscore = 5 if ok else 0; score += iscore
             results.append(("週轉率 > 8%", f"實測 {turnover:.2f}%", f"+{iscore}分", "status-pass" if ok else "status-fail", "週轉率代表市場熱度與換手動能。"))
             
-            # 2. KD 位階 (20%)
+            # 2. KD 位階 (🎯 權重調整為 25%)
             k_val = today['K']
-            if 20 <= k_val <= 30: ks, k_tag, kc, kr = 20, "+20分", "status-pass", "KD 20-30 低檔起漲區，具備高度爆發力。"
-            elif 40 <= k_val <= 65: ks, k_tag, kc, kr = 10, "+10分", "status-mid", "KD 40-65 中位階，動能發酵中。"
-            else: ks, k_tag, kc, kr = 0, "+0分", "status-fail", f"K值 {k_val:.1f} 處於非加分區間。"
+            if 20 <= k_val <= 30: ks, k_tag, kc, kr = 25, "+25分", "status-pass", "KD 20-30 低檔起漲區，最具備噴發潛力。"
+            elif 40 <= k_val <= 65: ks, k_tag, kc, kr = 12, "+12分", "status-mid", "KD 40-65 中位階，動能穩定發酵中。"
+            else: ks, k_tag, kc, kr = 0, "+0分", "status-fail", f"K值 {k_val:.1f} 不在加分區間 (過熱或盤整)。"
             score += ks; results.append(("KD 位階判定", f"K值: {k_val:.1f}", k_tag, kc, kr))
 
             # 3. 均線翻揚 (20%)
@@ -83,11 +81,11 @@ if analyze_btn and stock_id:
             ma_s = count * 5; score += ma_s
             results.append(("均線支撐強度", f"站穩 {count} 條線", f"+{ma_s}分", "status-pass" if count==3 else "status-mid" if count>=1 else "status-fail", f"收盤({c:.2f})與 5/10/20T 支撐對比。"))
 
-            # 5. 量價配合 (30%)
+            # 5. 量增紅K攻擊 (🎯 權重調整為 25%)
             v_vol, v_avg = int(today['Volume']/1000), int(today['5VMA']/1000)
             ok = today['Volume'] > today['5VMA'] and today['Close'] > today['Open']
-            iscore = 30 if ok else 0; score += iscore
-            results.append(("量增紅K攻擊", f"{v_vol:,}張 / 5T均 {v_avg:,}張", f"+{iscore}分", "status-pass" if ok else "status-fail", "帶量紅K代表主力表態攻擊。"))
+            iscore = 25 if ok else 0; score += iscore
+            results.append(("量增紅K攻擊", f"{v_vol:,}張 / 5T均 {v_avg:,}張", f"+{iscore}分", "status-pass" if ok else "status-fail", "量能放大且收紅K，為主力的攻擊表態。"))
 
             # 6. 季線與 MACD (各 5%)
             ok60 = today['Close'] > df.iloc[-60]['Close']; s60 = 5 if ok60 else 0; score += s60
@@ -95,7 +93,7 @@ if analyze_btn and stock_id:
             okm = (today['DIF'] - today['MACD']) > 0; sm = 5 if okm else 0; score += sm
             results.append(("MACD 動能轉正", "DIF > MACD", f"+{sm}分", "status-pass" if okm else "status-fail", "柱狀圖翻紅，代表動能發散中。"))
 
-            # --- 顯示總分報告 ---
+            # --- 顯示報告介面 ---
             col_sc, col_det = st.columns([1, 2])
             with col_sc:
                 c_hex = "#2DCC70" if score >= 80 else "#F1C40F" if score >= 70 else "#E74C3C"
@@ -107,19 +105,17 @@ if analyze_btn and stock_id:
                 st.markdown(f"""
                 <div class="weight-box">
                     <b>📈 評分權重說明：</b><br>
-                    量增紅K (30%) | 均線翻揚 (20%) | KD 位階 (20%) | 均線支撐 (15%) | 週轉率 (5%) | 季線趨勢 (5%) | MACD (5%)<br>
-                    <b>判定標準：</b> 🟢 80+ 值得買入 | 🟡 70+ 列入觀察 | ⚪ 60+ 保守看對 | 🔴 60- 暫不參考
+                    量增紅K (25%) | KD 位階 (25%) | 均線翻揚 (20%) | 均線支撐 (15%) | 週轉率 (5%) | 季線趨勢 (5%) | MACD (5%)<br>
+                    <b>判定標準：</b> 🟢 80+ 值得買入 | 🟡 70+ 列入觀察 | 🔴 60- 暫不參考
                 </div>
                 """, unsafe_allow_html=True)
                 
                 if score >= 80: st.success("🎯 **值得買入**：技術面具備強大起漲動能！")
                 elif score >= 70: st.warning("⚠️ **列入觀察**：分數達標，建議確認市場氛圍。")
-                elif score >= 60: st.info("⚪ **保守看對**：分數及格，建議等待更明確訊號。")
                 else: st.error("❄️ **暫不參考**：總分未達門檻，動能不足。")
 
             st.markdown("### 🔍 各項得分細節")
             for t, d, stg, cls, r in results:
-                # 🎯 修改：模擬分析:
                 st.markdown(f'<div class="check-item"><div style="flex: 1;"><div class="check-title">{t} ({d})</div><div class="check-reason"><b>模擬分析：</b>{r}</div></div><div class="{cls}">{stg}</div></div>', unsafe_allow_html=True)
 
 st.markdown('<div class="disclaimer">⚠️ 免責聲明：本工具僅為技術指標分析用途，不構成投資建議。投資一定有風險。</div>', unsafe_allow_html=True)

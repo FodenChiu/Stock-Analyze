@@ -31,16 +31,32 @@ st.markdown("""
 
 st.markdown('<h1 class="main-title">⚡ 台股短線買入評級</h1>', unsafe_allow_html=True)
 
-# --- 🎯 100% FinMind 雙引擎數據庫 ---
+# --- 🎯 100% FinMind 數據引擎 ---
+
+@st.cache_data(ttl=86400) # 緩存一天 (24小時)，抓取全台股代號與名稱字典
+def fetch_stock_mapping():
+    try:
+        url = "https://api.finmindtrade.com/api/v4/data"
+        params = {
+            "dataset": "TaiwanStockInfo",
+            "token": FINMIND_TOKEN
+        }
+        res = requests.get(url, params=params, timeout=10).json()
+        if res.get("msg") == "success":
+            df = pd.DataFrame(res["data"])
+            # 建立 { "2330": "台積電", "1301": "台塑" } 的字典
+            return dict(zip(df['stock_id'], df['stock_name']))
+        return {}
+    except:
+        return {}
+
 @st.cache_data(ttl=900)
 def fetch_finmind_data(sid):
     try:
         end_date = datetime.datetime.now().strftime("%Y-%m-%d")
-        # 抓取過去 150 天，確保能算出 60MA 季線
         start_date = (datetime.datetime.now() - datetime.timedelta(days=150)).strftime("%Y-%m-%d")
         url = "https://api.finmindtrade.com/api/v4/data"
         
-        # 1. 抓取技術面股價
         price_params = {
             "dataset": "TaiwanStockPrice",
             "data_id": sid,
@@ -53,12 +69,10 @@ def fetch_finmind_data(sid):
             return None, None
             
         df = pd.DataFrame(res_p["data"])
-        # 將 FinMind 欄位轉換為標準格式 (Trading_Volume 為股數)
         df.rename(columns={'open': 'Open', 'max': 'High', 'min': 'Low', 'close': 'Close', 'Trading_Volume': 'Volume'}, inplace=True)
         for col in ['Open', 'High', 'Low', 'Close', 'Volume']:
             df[col] = pd.to_numeric(df[col])
             
-        # 2. 抓取外資籌碼面
         chip_params = {
             "dataset": "TaiwanStockShareholding",
             "data_id": sid,
@@ -80,8 +94,15 @@ with col2:
     stock_id = st.text_input("s_id", value="", label_visibility="collapsed", placeholder="例如: 1301")
     analyze_btn = st.button("🚀 啟動全自動深度診斷")
 
+# 預先載入股票名稱字典
+stock_mapping = fetch_stock_mapping()
+
 if analyze_btn and stock_id:
-    with st.spinner(f"正在透過 FinMind 雙引擎分析 {stock_id} ..."):
+    # 🎯 取得公司名稱，如果有抓到就顯示「1301 台塑」，沒抓到就只顯示「1301」
+    stock_name = stock_mapping.get(stock_id, "")
+    display_name = f"{stock_id} {stock_name}" if stock_name else stock_id
+
+    with st.spinner(f"正在透過 FinMind 雙引擎分析 {display_name} ..."):
         df, df_chip = fetch_finmind_data(stock_id)
         
         if df is None: st.error(f"❌ 查無代號「{stock_id}」的資料，請確認是否為有效台股代號。")
@@ -105,7 +126,6 @@ if analyze_btn and stock_id:
                 latest_chip = df_chip.iloc[-1]
                 ratio = pd.to_numeric(latest_chip.get('ForeignInvestmentSharesRatio', 0))
                 f_shares = pd.to_numeric(latest_chip.get('ForeignInvestmentRemainShares', 0))
-                # 利用：外資持股數 / 外資持股比例 = 發行總股數
                 if ratio > 0: total_shares = f_shares / (ratio / 100)
                 chip_data_list = df_chip[['date', 'ForeignInvestmentSharesRatio']].tail(3).values.tolist()
             
@@ -138,7 +158,6 @@ if analyze_btn and stock_id:
             score += mas; tech_results.append(("短期均線支撐", f"收盤:{c_val:.1f}", f"+{mas}分", mac, f"模擬分析：{mam}"))
             
             # 4. 量增紅K攻擊 (20分)
-            # FinMind 的 Volume 是股數，轉換成張數 (/1000) 顯示
             ok_v = today['Volume'] > today['5VMA'] and today['Close'] > today['Open']
             vs = 20 if ok_v else 0; score += vs
             v_vol, v_avg = int(today['Volume']/1000), int(today['5VMA']/1000)
@@ -178,7 +197,8 @@ if analyze_btn and stock_id:
                 st.markdown(f'<div class="score-circle" style="border-color:{color}"><div class="score-text">{score}</div></div>', unsafe_allow_html=True)
                 st.markdown(f"<p style='text-align:center; color:{color}; font-weight:bold; margin-top:10px;'>綜合診斷總分</p>", unsafe_allow_html=True)
             with col_res_det:
-                st.markdown(f"## {stock_id} 全自動診斷報告")
+                # 🎯 標題現在會自動加上公司名稱了！
+                st.markdown(f"## {display_name} 全自動診斷報告")
                 if score >= 80: st.success("🎯 **值得買入**：技術面與籌碼面極佳！")
                 elif score >= 75: st.warning("⚠️ **列入觀察**：分數已達觀察區間。")
                 else: st.error("❄️ **暫不參考**：綜合評分未達標。")

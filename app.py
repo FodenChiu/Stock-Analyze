@@ -25,7 +25,6 @@ st.markdown("""
     .status-pass { background-color: #1A3E2A; color: #2DCC70; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: bold; border: 1px solid #2DCC70; min-width: 90px; text-align: center; }
     .status-mid { background-color: #3E321A; color: #F1C40F; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: bold; border: 1px solid #F1C40F; min-width: 90px; text-align: center; }
     .status-fail { background-color: #3E1A1A; color: #E74C3C; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: bold; border: 1px solid #E74C3C; min-width: 90px; text-align: center; }
-    /* 針對輸入框與智慧選單的暗黑風格優化 */
     input[data-testid="stTextInput"] { background-color: #1E1E1E !important; color: #EAEAEA !important; border: 1px solid #333 !important; text-align: center; font-size: 18px !important;}
     div[data-baseweb="select"] > div { background-color: #1E1E1E !important; color: #EAEAEA !important; border: 1px solid #333 !important; font-size: 16px !important; }
     ul[role="listbox"] { background-color: #1E1E1E !important; color: #EAEAEA !important; }
@@ -88,7 +87,6 @@ col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
     st.markdown('<p class="input-label" style="text-align:center;">📍 請輸入台股代號或名稱</p>', unsafe_allow_html=True)
     
-    # 如果名單有成功抓到，就顯示智慧選單；如果網路異常抓不到，退回一般的文字輸入框
     if stock_list:
         selected_option = st.selectbox(
             "s_id", 
@@ -108,7 +106,6 @@ with col2:
 if analyze_btn and selected_option:
     st.markdown("---")
     
-    # 自動分離出前面的數字代號 (不管使用者輸入的是 '1301' 還是 '1301 台塑'，都會萃取出 '1301')
     stock_id = str(selected_option).split(" ")[0]
     display_name = selected_option
 
@@ -120,7 +117,6 @@ if analyze_btn and selected_option:
         elif isinstance(df, str) and df == "error": 
             st.error("⚠️ 伺服器忙碌，請稍後再試。")
         else:
-            # 運算技術指標
             df['5MA'] = df['Close'].rolling(5).mean(); df['10MA'] = df['Close'].rolling(10).mean(); df['20MA'] = df['Close'].rolling(20).mean()
             df['5VMA'] = df['Volume'].rolling(5).mean()
             df['9L'], df['9H'] = df['Low'].rolling(9).min(), df['High'].rolling(9).max()
@@ -148,12 +144,20 @@ if analyze_btn and selected_option:
             else: ts, tc = 0, "status-fail"
             score += ts; tech_results.append(("週轉率判定", turnover_str, f"+{ts}分", tc, "模擬分析：週轉率水平對應得分。"))
             
-            # 2. KD 位階
+            # 2. KD 位階 (🎯 修正為連續區間，避免小數點漏洞)
             k_val = today['K']
-            if 25 <= k_val <= 40: ks, kc, km = 25, "status-pass", "KD 25-40 低檔爆發區，滿分。"
-            elif 45 <= k_val <= 60: ks, kc, km = 20, "status-mid", "KD 45-60 中位階穩定區。"
-            elif 65 <= k_val <= 70: ks, kc, km = 10, "status-fail", "KD 65-70 稍嫌過熱。"
-            else: ks, kc, km = 0, "status-fail", "過熱(>75)或未達標。"
+            if 25 <= k_val <= 40: 
+                ks, kc, km = 25, "status-pass", "KD 25~40 低檔爆發區，滿分。"
+            elif 40 < k_val <= 60: 
+                ks, kc, km = 20, "status-mid", "KD 41~60 中位階穩定區。"
+            elif 60 < k_val <= 70: 
+                ks, kc, km = 10, "status-mid", "KD 61~70 稍高位階。"
+            elif 70 < k_val <= 75: 
+                ks, kc, km = 5, "status-fail", "KD 71~75 偏高，注意風險。"
+            elif k_val > 75: 
+                ks, kc, km = 0, "status-fail", "過熱(>75)，無加分。"
+            else: 
+                ks, kc, km = 0, "status-fail", "低於 25，未達標。"
             score += ks; tech_results.append(("KD 位階判定", f"K值: {k_val:.1f}", f"+{ks}分", kc, f"模擬分析：{km}"))
             
             # 3. 均線支撐
@@ -225,7 +229,7 @@ if analyze_btn and selected_option:
             <div class="weight-box">
                 <h3 style="color:#D4AF37; margin-top:0;">📊 買入評級 - 得分細節說明</h3>
                 <table style="width:100%; color:#BBB; font-size:14px;">
-                    <tr><td style="color:#EAEAEA; padding:5px 0;"><b>KD 位階 (25分)</b></td><td>25-40(25分) | 45-60(20分) | 65-70(10分)</td></tr>
+                    <tr><td style="color:#EAEAEA; padding:5px 0;"><b>KD 位階 (25分)</b></td><td>25~40(25分) | 41~60(20分) | 61~70(10分) | 71~75(5分)</td></tr>
                     <tr><td style="color:#EAEAEA; padding:5px 0;"><b>量增紅K (20分)</b></td><td>成交量 > 5T 均量 且 收紅 K</td></tr>
                     <tr><td style="color:#EAEAEA; padding:5px 0;"><b>籌碼五日 (15分)</b></td><td>增加率 ≥2%(15分) | ≥1.5%(10分) | ≥1%(5分)</td></tr>
                     <tr><td style="color:#EAEAEA; padding:5px 0;"><b>均線支撐 (10分)</b></td><td>站穩 5/10/20T(10分) | 5/10T(5分) | 5T(3分)</td></tr>

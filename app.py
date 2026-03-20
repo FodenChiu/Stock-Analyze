@@ -78,7 +78,6 @@ def fetch_finmind_data(sid):
         return df, df_chip
     except Exception as e: return "error", str(e)
 
-# 取得股票清單字典
 stock_mapping = fetch_stock_mapping()
 stock_list = [f"{k} {v}" for k, v in stock_mapping.items()]
 
@@ -88,13 +87,7 @@ with col2:
     st.markdown('<p class="input-label" style="text-align:center;">📍 請輸入台股代號或名稱</p>', unsafe_allow_html=True)
     
     if stock_list:
-        selected_option = st.selectbox(
-            "s_id", 
-            options=stock_list, 
-            index=None, 
-            placeholder="🔍 支援打字搜尋 (例如: 2330 或 台積電)", 
-            label_visibility="collapsed"
-        )
+        selected_option = st.selectbox("s_id", options=stock_list, index=None, placeholder="🔍 支援打字搜尋 (例如: 2330 或 台積電)", label_visibility="collapsed")
     else:
         selected_option = st.text_input("s_id", value="", label_visibility="collapsed", placeholder="請輸入台股代號 (例如: 2330)")
         
@@ -102,7 +95,7 @@ with col2:
     analyze_btn = st.button("🚀 啟動全自動深度診斷")
 
 
-# --- 🎯 核心邏輯區 (報告展開) ---
+# --- 🎯 核心邏輯區 ---
 if analyze_btn and selected_option:
     st.markdown("---")
     
@@ -144,20 +137,18 @@ if analyze_btn and selected_option:
             else: ts, tc = 0, "status-fail"
             score += ts; tech_results.append(("週轉率判定", turnover_str, f"+{ts}分", tc, "模擬分析：週轉率水平對應得分。"))
             
-            # 2. KD 位階 (🎯 修正為連續區間，避免小數點漏洞)
+            # 2. KD 位階 (🎯 更新為 30~45 滿分)
             k_val = today['K']
-            if 25 <= k_val <= 40: 
-                ks, kc, km = 25, "status-pass", "KD 25~40 低檔爆發區，滿分。"
-            elif 40 < k_val <= 60: 
-                ks, kc, km = 20, "status-mid", "KD 41~60 中位階穩定區。"
-            elif 60 < k_val <= 70: 
-                ks, kc, km = 10, "status-mid", "KD 61~70 稍高位階。"
+            if 30 <= k_val <= 45: 
+                ks, kc, km = 25, "status-pass", "KD 30~45 起漲黃金區，滿分。"
+            elif 45 < k_val <= 65: 
+                ks, kc, km = 20, "status-mid", "KD 46~65 中位階穩定區。"
+            elif 65 < k_val <= 70: 
+                ks, kc, km = 10, "status-mid", "KD 66~70 稍高位階。"
             elif 70 < k_val <= 75: 
                 ks, kc, km = 5, "status-fail", "KD 71~75 偏高，注意風險。"
-            elif k_val > 75: 
-                ks, kc, km = 0, "status-fail", "過熱(>75)，無加分。"
             else: 
-                ks, kc, km = 0, "status-fail", "低於 25，未達標。"
+                ks, kc, km = 0, "status-fail", "過熱(>75)或動能不足(<30)，無加分。"
             score += ks; tech_results.append(("KD 位階判定", f"K值: {k_val:.1f}", f"+{ks}分", kc, f"模擬分析：{km}"))
             
             # 3. 均線支撐
@@ -185,7 +176,7 @@ if analyze_btn and selected_option:
             ups = 10 if ok_up else 0; score += ups
             tech_results.append(("短期均線翻揚", "5/10/20T 同步向上", f"+{ups}分", "status-pass" if ok_up else "status-fail", "模擬分析：多頭共識強烈。"))
 
-            # 6. 籌碼五日趨勢
+            # 6. 籌碼五日趨勢 (🎯 更新為 1.5% 滿分)
             chip_data_list = []
             if not df_chip.empty and "ForeignInvestmentSharesRatio" in df_chip.columns:
                 chip_data_list = df_chip[['date', 'ForeignInvestmentSharesRatio']].tail(5).values.tolist()
@@ -195,13 +186,13 @@ if analyze_btn and selected_option:
                 latest_date, latest_val = chip_data_list[-1]
                 diff = float(latest_val) - float(oldest_val)
                 
-                if diff >= 2: cs, cc = 15, "status-pass"
-                elif diff >= 1.5: cs, cc = 10, "status-mid"
-                elif diff >= 1: cs, cc = 5, "status-mid"
+                if diff >= 1.5: cs, cc = 15, "status-pass"
+                elif diff >= 1.0: cs, cc = 10, "status-mid"
+                elif diff >= 0.5: cs, cc = 5, "status-mid"
                 else: cs, cc = 0, "status-fail"
                 score += cs
                 
-                status_msg = "增加，有利多頭" if diff > 0 else "減少，籌碼鬆動"
+                status_msg = "連續買超" if diff >= 0.5 else ("變化不大" if diff >= 0 else "籌碼鬆動")
                 chip_results.append(("外資持股 5 日趨勢", f"自動抓取: {oldest_val}% → {latest_val}%", f"+{cs}分", cc, f"模擬分析：從 {oldest_date} 至 {latest_date} 外資持股{status_msg}。"))
             else:
                 chip_results.append(("外資持股 5 日趨勢", "無自動數據", "+0分", "status-fail", "模擬分析：無法抓取該檔股票的籌碼數據(可能為剛上市或無外資)。"))
@@ -224,14 +215,14 @@ if analyze_btn and selected_option:
             st.markdown("### 🔍 技術面得分細節")
             for t, d, stg, cls, r in tech_results: st.markdown(f'<div class="check-item"><div style="flex: 1;"><div class="check-title">{t} ({d})</div><div class="check-reason">{r}</div></div><div class="{cls}">{stg}</div></div>', unsafe_allow_html=True)
 
-            # --- 評分細節說明表 (只在報告展開後顯示) ---
+            # --- 評分細節說明表 ---
             st.markdown("""
             <div class="weight-box">
                 <h3 style="color:#D4AF37; margin-top:0;">📊 買入評級 - 得分細節說明</h3>
                 <table style="width:100%; color:#BBB; font-size:14px;">
-                    <tr><td style="color:#EAEAEA; padding:5px 0;"><b>KD 位階 (25分)</b></td><td>25~40(25分) | 41~60(20分) | 61~70(10分) | 71~75(5分)</td></tr>
+                    <tr><td style="color:#EAEAEA; padding:5px 0;"><b>KD 位階 (25分)</b></td><td>30~45(25分) | 46~65(20分) | 66~70(10分) | 71~75(5分)</td></tr>
                     <tr><td style="color:#EAEAEA; padding:5px 0;"><b>量增紅K (20分)</b></td><td>成交量 > 5T 均量 且 收紅 K</td></tr>
-                    <tr><td style="color:#EAEAEA; padding:5px 0;"><b>籌碼五日 (15分)</b></td><td>增加率 ≥2%(15分) | ≥1.5%(10分) | ≥1%(5分)</td></tr>
+                    <tr><td style="color:#EAEAEA; padding:5px 0;"><b>籌碼五日 (15分)</b></td><td>增加率 ≥1.5%(15分) | ≥1.0%(10分) | ≥0.5%(5分)</td></tr>
                     <tr><td style="color:#EAEAEA; padding:5px 0;"><b>均線支撐 (10分)</b></td><td>站穩 5/10/20T(10分) | 5/10T(5分) | 5T(3分)</td></tr>
                     <tr><td style="color:#EAEAEA; padding:5px 0;"><b>均線翻揚 (10分)</b></td><td>5T、10T、20T 同步向上</td></tr>
                     <tr><td style="color:#EAEAEA; padding:5px 0;"><b>MACD (10分)</b></td><td>DIF > MACD 柱狀翻紅</td></tr>

@@ -115,14 +115,17 @@ def analyze_single_stock(stock_id):
     ts = 5 if 7.0 <= turnover <= 10.0 else (3 if (2.0 <= turnover < 7.0 or 10.0 < turnover <= 15.0) else (1 if (1.0 <= turnover < 2.0 or 15.0 < turnover <= 20.0) else 0))
     score += ts; tech_results.append(("週轉率判定", f"實測 {turnover:.2f}%" if total_shares > 0 else "無法估算", f"+{ts}分", "status-pass" if ts==5 else "status-mid" if ts>0 else "status-fail", ""))
     
-    # 2. KD 位階 (25分)
+    # 🎯 2. KD 位階 (25分) 
     k_val = today['K']
-    v0, v1, v2, v3 = df['Volume'].iloc[-1], df['Volume'].iloc[-2], df['Volume'].iloc[-3], df['Volume'].iloc[-4]
+    # 取出近五日量能
+    v0, v1, v2, v3, v4 = df['Volume'].iloc[-1], df['Volume'].iloc[-2], df['Volume'].iloc[-3], df['Volume'].iloc[-4], df['Volume'].iloc[-5]
     
     is_today_black = today['Close'] < today['Open']
     is_today_vol_up = v0 > v1
     is_today_dump = is_today_black and is_today_vol_up
-    is_excessive_vol = v0 > (v1 + v2 + v3)
+    
+    # 爆量判定改為：今日量大於前四日總和
+    is_excessive_vol = v0 > (v1 + v2 + v3 + v4)
 
     is_yest_black = yest['Close'] < yest['Open']
     is_yest_vol_up = v1 > v2
@@ -156,13 +159,16 @@ def analyze_single_stock(stock_id):
     else: mas, mac, mam = 0, "status-fail", "均線蓋頭或全數下彎"
     score += mas; tech_results.append(("均線綜合型態", f"站穩:{sup_count}線 / 翻揚:{up_count}線", f"+{mas}分", mac, mam))
     
-    # 4. 近三天量能變化 (20分)
-    if is_excessive_vol: vs, vc, vm = 0, "status-fail", "大於前三天總和(過熱)"
-    elif v0 > v1 and v1 > v2:
-        if v0 >= 1.5 * v1: vs, vc, vm = 15, "status-mid", "連續增加(逐步爆量)"
-        else: vs, vc, vm = 20, "status-pass", "穩健逐步增加"
-    else: vs, vc, vm = 0, "status-fail", "量能未連續增加"
-    score += vs; tech_results.append(("近三天量能", f"今日 {int(v0/1000):,}張", f"+{vs}分", vc, vm))
+    # 🎯 4. 近五天量能變化 (20分)
+    if is_excessive_vol: 
+        vs, vc, vm = 0, "status-fail", "大於前四天總和(過熱)"
+    elif v0 > v1 and v1 > v2 and v2 > v3 and v3 > v4:
+        if v0 >= 1.5 * v1: vs, vc, vm = 15, "status-mid", "連五日量增(逐步爆量)"
+        else: vs, vc, vm = 20, "status-pass", "連五日穩健量增"
+    else: 
+        vs, vc, vm = 0, "status-fail", "未達連五日遞增"
+        
+    score += vs; tech_results.append(("近五天量能", f"今日 {int(v0/1000):,}張", f"+{vs}分", vc, vm))
     summary['量能狀態'] = vm
 
     # 5. 其他技術面 (15分)
@@ -178,31 +184,30 @@ def analyze_single_stock(stock_id):
         fi_d = [fi_sh[i] - fi_sh[i-1] for i in range(1, 5)]
         p_buys = sum([d for d in fi_d[:3] if d > 0])
         if fi_d[3] < 0 and abs(fi_d[3]) > p_buys: fi_s = 0
-        elif all(d > 0 for d in fi_d[1:]): fi_s = 15 # 三連買
-        elif fi_sh[4] > fi_sh[0]: fi_s = 10 # 五日增
-        elif fi_sh[4] == fi_sh[0]: fi_s = 5 # 持平
+        elif all(d > 0 for d in fi_d[1:]): fi_s = 15 
+        elif fi_sh[4] > fi_sh[0]: fi_s = 10 
+        elif fi_sh[4] == fi_sh[0]: fi_s = 5 
         else: fi_s = 3
     
     it_s = 0
     if not df_it.empty and len(df_it) >= 5:
         it_sh = df_it['HoldingShares'].tail(5).tolist()
         it_d = [it_sh[i] - it_sh[i-1] for i in range(1, 5)]
-        if all(d > 0 for d in it_d[1:]): it_s = 5 # 三連買
-        elif it_sh[4] > it_sh[0]: it_s = 3 # 五日增
+        if all(d > 0 for d in it_d[1:]): it_s = 5 
+        elif it_sh[4] > it_sh[0]: it_s = 3 
         else: it_s = 0 
     
     score += (fi_s + it_s)
-    chip_results.append(("法人籌碼 (外資核心15 + 投信加分5)", f"外資:{fi_s} / 投信:{it_s}", f"+{fi_s+it_s}分", "status-pass" if (fi_s+it_s)>=15 else "status-mid", f"外資{'買超' if fi_s>=10 else '普通'}，投信{'加持' if it_s>0 else '觀望'}"))
+    chip_results.append(("法人籌碼 (外資15 + 投信5)", f"外資:{fi_s} / 投信:{it_s}", f"+{fi_s+it_s}分", "status-pass" if (fi_s+it_s)>=15 else "status-mid", f"外資{'買超' if fi_s>=10 else '普通'}，投信{'加持' if it_s>0 else '觀望'}"))
     summary['外資狀態'] = "買超" if fi_s >= 10 else "賣超"
     summary['投信狀態'] = "加持" if it_s >= 3 else "觀望"
 
-    # 🎯 評級判定門檻修正 (75 / 70 / 69)
+    # 評級判定
     if score >= 75: summary['評級'] = "🟢 值得買入"
     elif score >= 70: summary['評級'] = "🟡 列入觀察"
     else: summary['評級'] = "🔴 暫不參考"
     
     return "success", score, {"tech": tech_results, "chip": chip_results, "summary": summary}
-
 
 # --- 🎯 雙頁籤介面設計 ---
 tab1, tab2 = st.tabs(["🎯 單檔深度診斷", "📊 批量多檔掃描"])
@@ -230,13 +235,11 @@ with tab1:
 
                 col_res_sc, col_res_det = st.columns([1, 2])
                 with col_res_sc:
-                    # 🎯 儀表板顏色門檻同步修正
                     color = "#2DCC70" if score >= 75 else "#F1C40F" if score >= 70 else "#E74C3C"
                     st.markdown(f'<div class="score-circle" style="border-color:{color}"><div class="score-text">{score}</div></div>', unsafe_allow_html=True)
                     st.markdown(f"<p style='text-align:center; color:{color}; font-weight:bold; margin-top:10px;'>綜合診斷總分 (滿分100)</p>", unsafe_allow_html=True)
                 with col_res_det:
                     st.markdown(f"## {display_name} 診斷報告")
-                    # 🎯 文字提示門檻同步修正
                     if score >= 75: st.success(f"🎯 **值得買入**：{results['summary']['KD狀態']}")
                     elif score >= 70: st.warning("⚠️ **列入觀察**：分數已達標")
                     else: st.error("❄️ **暫不參考**：綜合評分未達標。")
@@ -250,13 +253,12 @@ with tab1:
                 st.markdown("### 🔍 技術面得分細節")
                 for t, d, stg, cls, r in results['tech']: st.markdown(f'<div class="check-item"><div style="flex: 1;"><div class="check-title">{t} ({d})</div><div class="check-reason">{r}</div></div><div class="{cls}">{stg}</div></div>', unsafe_allow_html=True)
 
-                # 🎯 底部說明表門檻同步修正
                 st.markdown("""
                 <div class="weight-box">
                     <h3 style="color:#D4AF37; margin-top:0;">📊 買入評級 - 得分細節說明 (滿分100)</h3>
                     <table style="width:100%; color:#BBB; font-size:14px;">
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>KD 位階 (25分)</b></td><td>30~45(25) | 46~60(20) | >75鈍化不爆量(25) | 近兩日放量黑(0)</td></tr>
-                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>量能變化 (20分)</b></td><td>逐步增加(20) | 逐步爆量(15) | 大於前三天總和(0)</td></tr>
+                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>近五天量能 (20分)</b></td><td>連五日遞增(20) | 逐步爆量(15) | 大於前四天總和(0)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>外資核心 (15分)</b></td><td>連續買超(15) | 五日持股增加(10) | 持平(5) | 遞減(3)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>投信加分 (5分)</b></td><td>連續買超(5) | 五日持股增加(3) | 其餘不加分(0)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>均線型態 (15分)</b></td><td>三支撐+三翻揚(15) | 雙支撐+雙翻揚(10) | 單支撐+單翻揚(5)</td></tr>

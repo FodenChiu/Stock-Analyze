@@ -122,8 +122,8 @@ def analyze_single_stock(stock_id):
     elif 45 < k_val <= 65: ks, kc, km = 20, "status-mid", "KD 46~65 中位階穩定"
     elif 65 < k_val <= 70: ks, kc, km = 10, "status-mid", "KD 66~70 稍高位階"
     elif 70 < k_val <= 75: ks, kc, km = 5, "status-fail", "KD 71~75 偏高"
-    elif k_val > 80: ks, kc, km = 0, "status-fail", "過熱"
-    elif k_val < 30: ks, kc, km = 0, "status-fail", "動能不足"
+    elif k_val > 80: ks, kc, km = 0, "status-fail", "市場過熱，留意回檔"
+    elif k_val < 30: ks, kc, km = 0, "status-fail", "市場動能不足"
     else: ks, kc, km = 0, "status-fail", "過度拉回" # 涵蓋 75-80 或 其它極端
     
     score += ks; tech_results.append(("KD 位階", f"K值: {k_val:.1f}", f"+{ks}分", kc, km))

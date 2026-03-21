@@ -162,7 +162,7 @@ if analyze_btn and selected_option:
             else: mas, mac, mam = 0, "status-fail", "均線之下。"
             score += mas; tech_results.append(("短期均線支撐", f"收盤:{c_val:.1f}", f"+{mas}分", mac, f"模擬分析：{mam}"))
             
-            # 4. 近三天量能變化 (20分) - 🎯 全新演算法
+            # 4. 近三天量能變化 (20分)
             v0 = df['Volume'].iloc[-1]
             v1 = df['Volume'].iloc[-2]
             v2 = df['Volume'].iloc[-3]
@@ -172,7 +172,7 @@ if analyze_btn and selected_option:
             if v0 > sum_3days_prior:
                 vs, vc, vm = 0, "status-fail", "今日成交量大於前三天總和，疑似出貨或極度過熱，0分。"
             elif v0 > v1 and v1 > v2:
-                if v0 >= 1.5 * v1: # 定義：今日大於昨日1.5倍為爆量
+                if v0 >= 1.5 * v1:
                     vs, vc, vm = 15, "status-mid", "近三日量能連續增加，但今日呈現「逐步爆量」，須留意追高風險。"
                 else:
                     vs, vc, vm = 20, "status-pass", "近三日量能呈現「穩健逐步增加」，換手動能最健康，滿分。"
@@ -191,40 +191,52 @@ if analyze_btn and selected_option:
             ups = 10 if ok_up else 0; score += ups
             tech_results.append(("短期均線翻揚", "5/10/20T 同步向上", f"+{ups}分", "status-pass" if ok_up else "status-fail", "模擬分析：多頭共識強烈。"))
 
-            # 6. 籌碼五日趨勢 (15分)
+            # 🎯 6. 籌碼行為模式判定 (20分)
             chip_data_list = []
-            if not df_chip.empty and "ForeignInvestmentSharesRatio" in df_chip.columns:
-                chip_data_list = df_chip[['date', 'ForeignInvestmentSharesRatio']].tail(5).values.tolist()
+            if not df_chip.empty and "ForeignInvestmentShares" in df_chip.columns:
+                # 取最後 5 筆外資持股數 (股數)
+                chip_data_list = df_chip[['date', 'ForeignInvestmentShares']].tail(5).values.tolist()
 
-            if chip_data_list and len(chip_data_list) >= 2:
-                oldest_date, oldest_val = chip_data_list[0]
-                latest_date, latest_val = chip_data_list[-1]
-                diff = float(latest_val) - float(oldest_val)
+            if chip_data_list and len(chip_data_list) == 5:
+                shares = [float(x[1]) for x in chip_data_list]
+                diff1 = shares[1] - shares[0] # D-3 買賣超
+                diff2 = shares[2] - shares[1] # D-2 買賣超
+                diff3 = shares[3] - shares[2] # D-1 買賣超
+                diff4 = shares[4] - shares[3] # 今日 買賣超
                 
-                if diff >= 1.5: cs, cc = 15, "status-pass"
-                elif diff >= 1.0: cs, cc = 10, "status-mid"
-                elif diff >= 0.5: cs, cc = 5, "status-mid"
-                else: cs, cc = 0, "status-fail"
+                # 計算前三天 (D-3, D-2, D-1) 只要有買超的總額
+                prev_3_buys = sum([d for d in [diff1, diff2, diff3] if d > 0])
+                
+                if diff4 < 0 and abs(diff4) > prev_3_buys:
+                    cs, cc, cm = 0, "status-fail", "外資持股大賣，且賣超幅度超過前三日買超總和！"
+                elif diff4 > 0 and diff3 > 0 and diff2 > 0:
+                    cs, cc, cm = 20, "status-pass", "外資連續三天以上買超，持股動能強勁！"
+                elif shares[4] > shares[0]:
+                    cs, cc, cm = 15, "status-pass", "近五日外資持股總體增加。"
+                elif shares[4] == shares[0]:
+                    cs, cc, cm = 10, "status-mid", "近五日外資持股持平。"
+                else:
+                    cs, cc, cm = 5, "status-fail", "近五日外資持股呈現遞減狀態。"
+                
                 score += cs
-                
-                status_msg = "連續買超" if diff >= 0.5 else ("變化不大" if diff >= 0 else "籌碼鬆動")
-                chip_results.append(("外資持股 5 日趨勢", f"自動抓取: {oldest_val}% → {latest_val}%", f"+{cs}分", cc, f"模擬分析：從 {oldest_date} 至 {latest_date} 外資持股{status_msg}。"))
+                latest_share_str = f"{int(shares[4]/1000):,} 張"
+                chip_results.append(("外資籌碼判定", f"最新外資持股: {latest_share_str}", f"+{cs}分", cc, f"模擬分析：{cm}"))
             else:
-                chip_results.append(("外資持股 5 日趨勢", "無自動數據", "+0分", "status-fail", "模擬分析：無法抓取該檔股票的籌碼數據(可能為剛上市或無外資)。"))
+                chip_results.append(("外資籌碼判定", "無完整五日數據", "+0分", "status-fail", "模擬分析：無法抓取該檔股票完整的五日籌碼數據。"))
 
             # --- 報告 UI 渲染 ---
             col_res_sc, col_res_det = st.columns([1, 2])
             with col_res_sc:
                 color = "#2DCC70" if score >= 80 else "#F1C40F" if score >= 75 else "#E74C3C"
                 st.markdown(f'<div class="score-circle" style="border-color:{color}"><div class="score-text">{score}</div></div>', unsafe_allow_html=True)
-                st.markdown(f"<p style='text-align:center; color:{color}; font-weight:bold; margin-top:10px;'>綜合診斷總分</p>", unsafe_allow_html=True)
+                st.markdown(f"<p style='text-align:center; color:{color}; font-weight:bold; margin-top:10px;'>綜合診斷總分 (滿分105)</p>", unsafe_allow_html=True)
             with col_res_det:
                 st.markdown(f"## {display_name} 全自動診斷報告")
                 if score >= 80: st.success("🎯 **值得買入**：技術面與籌碼面極佳！")
                 elif score >= 75: st.warning("⚠️ **列入觀察**：分數已達觀察區間。")
                 else: st.error("❄️ **暫不參考**：綜合評分未達標。")
 
-            st.markdown("### 🧬 外資籌碼面 (FinMind 自動判定)")
+            st.markdown("### 🧬 外資籌碼面 (FinMind 自動行為判定)")
             for t, d, stg, cls, r in chip_results: st.markdown(f'<div class="check-item"><div style="flex: 1;"><div class="check-title">{t} ({d})</div><div class="check-reason">{r}</div></div><div class="{cls}">{stg}</div></div>', unsafe_allow_html=True)
 
             st.markdown("### 🔍 技術面得分細節")
@@ -233,11 +245,11 @@ if analyze_btn and selected_option:
             # --- 評分細節說明表 ---
             st.markdown("""
             <div class="weight-box">
-                <h3 style="color:#D4AF37; margin-top:0;">📊 買入評級 - 得分細節說明</h3>
+                <h3 style="color:#D4AF37; margin-top:0;">📊 買入評級 - 得分細節說明 (滿分105)</h3>
                 <table style="width:100%; color:#BBB; font-size:14px;">
                     <tr><td style="color:#EAEAEA; padding:5px 0;"><b>KD 位階 (25分)</b></td><td>30~45(25分) | 46~65(20分) | 66~70(10分) | 71~75(5分)</td></tr>
                     <tr><td style="color:#EAEAEA; padding:5px 0;"><b>近三天量能 (20分)</b></td><td>逐步增加(20分) | 逐步爆量(15分) | 大於前三天總和(0分)</td></tr>
-                    <tr><td style="color:#EAEAEA; padding:5px 0;"><b>籌碼五日 (15分)</b></td><td>增加率 ≥1.5%(15分) | ≥1.0%(10分) | ≥0.5%(5分)</td></tr>
+                    <tr><td style="color:#EAEAEA; padding:5px 0;"><b>外資籌碼 (20分)</b></td><td>連續買超(20) | 持股增加(15) | 持平(10) | 遞減(5) | 大賣勝前三日(0)</td></tr>
                     <tr><td style="color:#EAEAEA; padding:5px 0;"><b>均線支撐 (10分)</b></td><td>站穩 5/10/20T(10分) | 5/10T(5分) | 5T(3分)</td></tr>
                     <tr><td style="color:#EAEAEA; padding:5px 0;"><b>均線翻揚 (10分)</b></td><td>5T、10T、20T 同步向上</td></tr>
                     <tr><td style="color:#EAEAEA; padding:5px 0;"><b>MACD (10分)</b></td><td>DIF > MACD 柱狀翻紅</td></tr>

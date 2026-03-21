@@ -52,7 +52,6 @@ def fetch_stock_mapping():
 
 @st.cache_data(ttl=86400)
 def fetch_total_shares(sid):
-    # 升級：使用 Yahoo 更底層的 fast_info，並加上多重錯誤捕捉
     for ext in [".TW", ".TWO"]:
         try:
             t = yf.Ticker(f"{sid}{ext}")
@@ -102,18 +101,14 @@ def analyze_single_stock(stock_id):
     df['MACD'] = df['DIF'].ewm(span=9, adjust=False).mean()
     
     today, yest = df.iloc[-1], df.iloc[-2]
-    
-    # --- 🎯 雙重火力探測總股數 ---
     total_shares = fetch_total_shares(stock_id)
     
-    # 終極防呆：如果 Yahoo 抓不到(上櫃股票常見)，改用 FinMind 的外資數據反推總發行股數
     if total_shares <= 0 and not df_chip.empty and "ForeignInvestmentSharesRatio" in df_chip.columns and "ForeignInvestmentShares" in df_chip.columns:
         try:
             latest_chip = df_chip.iloc[-1]
             ratio = float(latest_chip.get('ForeignInvestmentSharesRatio', 0))
             f_shares = float(latest_chip.get('ForeignInvestmentShares', 0))
-            if ratio > 0:
-                total_shares = f_shares / (ratio / 100)
+            if ratio > 0: total_shares = f_shares / (ratio / 100)
         except: pass
         
     turnover = (today['Volume'] / total_shares) * 100 if total_shares > 0 else 0
@@ -196,13 +191,15 @@ with tab1:
     with col2:
         st.markdown('<p class="input-label" style="text-align:center; margin-top:20px;">📍 請輸入台股代號或名稱</p>', unsafe_allow_html=True)
         if stock_list:
-            selected_option = st.selectbox("s_id_single", options=stock_list, index=None, placeholder="🔍 支援打字搜尋 (例如: 2330 或 台積電)", label_visibility="collapsed")
+            selected_option = st.selectbox("s_id_single", options=stock_list, index=None, placeholder="🔍 輸入代號並按 Enter 即可瞬間掃描", label_visibility="collapsed")
         else:
-            selected_option = st.text_input("s_id_single", value="", label_visibility="collapsed", placeholder="請輸入台股代號 (例如: 2330)")
+            selected_option = st.text_input("s_id_single", value="", label_visibility="collapsed", placeholder="請輸入台股代號並按 Enter")
         st.write("")
-        analyze_btn = st.button("🚀 啟動深度診斷", key="btn_single")
+        # 按鈕現在只是視覺輔助，真正驅動的是 selected_option 的改變
+        st.button("🚀 啟動深度診斷", key="btn_single")
 
-    if analyze_btn and selected_option:
+    # 🔥 終極優化：只要輸入框有選到東西，就算沒按按鈕也會自動開始跑！
+    if selected_option:
         st.markdown("---")
         stock_id = str(selected_option).split(" ")[0]
         display_name = selected_option
@@ -249,6 +246,7 @@ with tab1:
 with tab2:
     st.markdown('<p class="input-label" style="margin-top:20px;">📋 貼上自選股清單 (支援 Excel 直接複製貼上)</p>', unsafe_allow_html=True)
     batch_input = st.text_area("batch_input", height=150, placeholder="例如：\n6530 創威\n5291 邑昇\n4967 十銓", label_visibility="collapsed")
+    # 這裡保留按鈕，因為輸入框按 Enter 會變成換行
     batch_btn = st.button("🚀 啟動批量掃描", key="btn_batch")
 
     if batch_btn and batch_input.strip():

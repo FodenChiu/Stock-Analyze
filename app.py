@@ -52,13 +52,20 @@ def fetch_stock_mapping():
 
 @st.cache_data(ttl=86400)
 def fetch_total_shares(sid):
-    try:
-        for ext in [".TW", ".TWO"]:
+    # 升級：使用 Yahoo 更底層的 fast_info，並加上多重錯誤捕捉
+    for ext in [".TW", ".TWO"]:
+        try:
             t = yf.Ticker(f"{sid}{ext}")
-            shares = t.info.get('sharesOutstanding')
+            shares = 0
+            try: shares = t.fast_info.get('shares', 0)
+            except: pass
+            
+            if not shares or shares == 0:
+                shares = t.info.get('sharesOutstanding', 0)
+                
             if shares and shares > 0: return shares
-        return 0
-    except: return 0
+        except: continue
+    return 0
 
 @st.cache_data(ttl=900)
 def fetch_finmind_data(sid):
@@ -95,15 +102,27 @@ def analyze_single_stock(stock_id):
     df['MACD'] = df['DIF'].ewm(span=9, adjust=False).mean()
     
     today, yest = df.iloc[-1], df.iloc[-2]
+    
+    # --- 🎯 雙重火力探測總股數 ---
     total_shares = fetch_total_shares(stock_id)
     
+    # 終極防呆：如果 Yahoo 抓不到(上櫃股票常見)，改用 FinMind 的外資數據反推總發行股數
+    if total_shares <= 0 and not df_chip.empty and "ForeignInvestmentSharesRatio" in df_chip.columns and "ForeignInvestmentShares" in df_chip.columns:
+        try:
+            latest_chip = df_chip.iloc[-1]
+            ratio = float(latest_chip.get('ForeignInvestmentSharesRatio', 0))
+            f_shares = float(latest_chip.get('ForeignInvestmentShares', 0))
+            if ratio > 0:
+                total_shares = f_shares / (ratio / 100)
+        except: pass
+        
     turnover = (today['Volume'] / total_shares) * 100 if total_shares > 0 else 0
     score = 0; tech_results = []; chip_results = []; summary = {}
     
     # 1. 週轉率 (5分)
     ts = 5 if turnover > 8 else (3 if turnover > 5 else (1 if turnover > 1 else 0))
     tc = "status-pass" if ts==5 else ("status-mid" if ts>0 else "status-fail")
-    score += ts; tech_results.append(("週轉率判定", f"實測 {turnover:.2f}%" if total_shares > 0 else "無資料", f"+{ts}分", tc, "週轉率水平。"))
+    score += ts; tech_results.append(("週轉率判定", f"實測 {turnover:.2f}%" if total_shares > 0 else "無法估算(無總股數)", f"+{ts}分", tc, "週轉率水平。"))
     
     # 2. KD 位階 (25分)
     k_val = today['K']
@@ -115,22 +134,16 @@ def analyze_single_stock(stock_id):
     score += ks; tech_results.append(("KD 位階", f"K值: {k_val:.1f}", f"+{ks}分", kc, km))
     summary['KD狀態'] = km
     
-    # 🎯 3. 均線綜合型態 (支撐 + 翻揚合併，15分)
+    # 3. 均線綜合型態 (15分)
     c_val, m5, m10, m20 = today['Close'], today['5MA'], today['10MA'], today['20MA']
     y_m5, y_m10, y_m20 = yest['5MA'], yest['10MA'], yest['20MA']
-    
-    sup_count = sum([c_val > m5, c_val > m10, c_val > m20]) # 站穩幾線
-    up_count = sum([m5 > y_m5, m10 > y_m10, m20 > y_m20])   # 翻揚幾線
+    sup_count = sum([c_val > m5, c_val > m10, c_val > m20])
+    up_count = sum([m5 > y_m5, m10 > y_m10, m20 > y_m20])
 
-    if sup_count == 3 and up_count == 3:
-        mas, mac, mam = 15, "status-pass", "站穩三線且全數翻揚，強勢多頭。"
-    elif sup_count >= 2 and up_count >= 2:
-        mas, mac, mam = 10, "status-mid", "站穩雙線且雙線翻揚，多頭成形。"
-    elif sup_count >= 1 and up_count >= 1:
-        mas, mac, mam = 5, "status-fail", "站穩單線且單線翻揚，初步止跌。"
-    else:
-        mas, mac, mam = 0, "status-fail", "均線蓋頭或全數下彎，空頭格局。"
-
+    if sup_count == 3 and up_count == 3: mas, mac, mam = 15, "status-pass", "站穩三線且全數翻揚"
+    elif sup_count >= 2 and up_count >= 2: mas, mac, mam = 10, "status-mid", "站穩雙線且雙線翻揚"
+    elif sup_count >= 1 and up_count >= 1: mas, mac, mam = 5, "status-fail", "站穩單線且單線翻揚"
+    else: mas, mac, mam = 0, "status-fail", "均線蓋頭或全數下彎"
     score += mas; tech_results.append(("均線綜合型態", f"站穩:{sup_count}線 / 翻揚:{up_count}線", f"+{mas}分", mac, mam))
     
     # 4. 近三天量能變化 (20分)
@@ -143,7 +156,7 @@ def analyze_single_stock(stock_id):
     score += vs; tech_results.append(("近三天量能", f"今日 {int(v0/1000):,}張", f"+{vs}分", vc, vm))
     summary['量能狀態'] = vm
 
-    # 5. 其他技術面 (MACD 10分 + 季線 5分 = 共 15 分)
+    # 5. 其他技術面 (15分)
     ms = 10 if (today['DIF'] - today['MACD']) > 0 else 0; score += ms
     tech_results.append(("MACD 動能", "柱狀翻紅", f"+{ms}分", "status-pass" if ms else "status-fail", "動能轉正"))
     qs = 5 if len(df) >= 60 and today['Close'] > df.iloc[-60]['Close'] else 0; score += qs

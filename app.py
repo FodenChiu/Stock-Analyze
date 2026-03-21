@@ -79,7 +79,7 @@ def fetch_finmind_data(sid):
 stock_mapping = fetch_stock_mapping()
 stock_list = [f"{k} {v}" for k, v in stock_mapping.items()]
 
-# --- 🎯 核心運算引擎 (將運算邏輯獨立，方便單檔與多檔共用) ---
+# --- 🎯 核心運算引擎 ---
 def analyze_single_stock(stock_id):
     df, df_chip = fetch_finmind_data(stock_id)
     if df is None: return "not_found", None, None
@@ -205,6 +205,24 @@ with tab1:
 
                 st.markdown("### 🔍 技術面得分細節")
                 for t, d, stg, cls, r in results['tech']: st.markdown(f'<div class="check-item"><div style="flex: 1;"><div class="check-title">{t} ({d})</div><div class="check-reason">{r}</div></div><div class="{cls}">{stg}</div></div>', unsafe_allow_html=True)
+
+                # 🎯 補回：評分細節說明表
+                st.markdown("""
+                <div class="weight-box">
+                    <h3 style="color:#D4AF37; margin-top:0;">📊 買入評級 - 得分細節說明 (滿分105)</h3>
+                    <table style="width:100%; color:#BBB; font-size:14px;">
+                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>KD 位階 (25分)</b></td><td>30~45(25分) | 46~65(20分) | 66~70(10分) | 71~75(5分)</td></tr>
+                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>近三天量能 (20分)</b></td><td>逐步增加(20分) | 逐步爆量(15分) | 大於前三天總和(0分)</td></tr>
+                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>外資籌碼 (20分)</b></td><td>連續買超(20) | 持股增加(15) | 持平(10) | 遞減(5) | 大賣勝前三日(0)</td></tr>
+                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>均線支撐 (10分)</b></td><td>站穩 5/10/20T(10分) | 5/10T(5分) | 5T(3分)</td></tr>
+                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>均線翻揚 (10分)</b></td><td>5T、10T、20T 同步向上</td></tr>
+                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>MACD (10分)</b></td><td>DIF > MACD 柱狀翻紅</td></tr>
+                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>週轉率 (5分)</b></td><td>>8%(5分) | >5%(3分) | >1%(1分)</td></tr>
+                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>季線趨勢 (5分)</b></td><td>現價 > 60 日前價格</td></tr>
+                    </table>
+                    <p style="margin-top:15px; font-weight:bold; color:#D4AF37;">🟢 80+ 值得買入 | 🟡 75+ 列入觀察 | 🔴 75- 暫不參考</p>
+                </div>
+                """, unsafe_allow_html=True)
 
 # --- 頁籤 2: 批量多檔掃描 ---
 with tab2:

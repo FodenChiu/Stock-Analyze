@@ -111,20 +111,28 @@ def analyze_single_stock(stock_id):
     turnover = (today['Volume'] / total_shares) * 100 if total_shares > 0 else 0
     score = 0; tech_results = []; chip_results = []; summary = {}
     
-    # 1. 週轉率 (5分)
-    ts = 5 if turnover > 8 else (3 if turnover > 5 else (1 if turnover > 1 else 0))
-    tc = "status-pass" if ts==5 else ("status-mid" if ts>0 else "status-fail")
+    # 🎯 1. 週轉率 (5分) - 依照最新權重分配
+    t_val = turnover
+    if 7.0 <= t_val <= 10.0:
+        ts, tc = 5, "status-pass"
+    elif (2.0 <= t_val < 7.0) or (10.0 < t_val <= 15.0):
+        ts, tc = 3, "status-mid"
+    elif (1.0 <= t_val < 2.0) or (15.0 < t_val <= 20.0):
+        ts, tc = 1, "status-mid"
+    else: # >20% 或 <1%
+        ts, tc = 0, "status-fail"
+        
     score += ts; tech_results.append(("週轉率判定", f"實測 {turnover:.2f}%" if total_shares > 0 else "無法估算", f"+{ts}分", tc, ""))
     
-    # 2. KD 位階 (🎯 修正標籤：小於30動能不足，大於80過熱)
+    # 2. KD 位階 (25分)
     k_val = today['K']
     if 30 <= k_val <= 45: ks, kc, km = 25, "status-pass", "KD 30~45 起漲黃金區"
     elif 45 < k_val <= 65: ks, kc, km = 20, "status-mid", "KD 46~65 中位階穩定"
     elif 65 < k_val <= 70: ks, kc, km = 10, "status-mid", "KD 66~70 稍高位階"
     elif 70 < k_val <= 75: ks, kc, km = 5, "status-fail", "KD 71~75 偏高"
-    elif k_val > 80: ks, kc, km = 0, "status-fail", "市場過熱，留意回檔"
-    elif k_val < 30: ks, kc, km = 0, "status-fail", "市場動能不足"
-    else: ks, kc, km = 0, "status-fail", "過度拉回" # 涵蓋 75-80 或 其它極端
+    elif k_val > 80: ks, kc, km = 0, "status-fail", "過熱"
+    elif k_val < 30: ks, kc, km = 0, "status-fail", "動能不足"
+    else: ks, kc, km = 0, "status-fail", "過度拉回"
     
     score += ks; tech_results.append(("KD 位階", f"K值: {k_val:.1f}", f"+{ks}分", kc, km))
     summary['KD狀態'] = km
@@ -183,7 +191,6 @@ def analyze_single_stock(stock_id):
 # --- 🎯 雙頁籤介面設計 ---
 tab1, tab2 = st.tabs(["🎯 單檔深度診斷", "📊 批量多檔掃描"])
 
-# --- 頁籤 1: 單檔深度診斷 ---
 with tab1:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
@@ -226,19 +233,18 @@ with tab1:
                 <div class="weight-box">
                     <h3 style="color:#D4AF37; margin-top:0;">📊 買入評級 - 得分細節說明 (滿分100)</h3>
                     <table style="width:100%; color:#BBB; font-size:14px;">
-                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>KD 位階 (25分)</b></td><td>30~45(25分) | 46~65(20分) | 66~70(10分) | 71~75(5分) | >80(過熱) | <30(動能不足)</td></tr>
+                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>KD 位階 (25分)</b></td><td>30~45(25分) | 46~65(20分) | 66~70(10分) | 71~75(5分) | >80(過熱) | <30(不足)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>近三天量能 (20分)</b></td><td>逐步增加(20分) | 逐步爆量(15分) | 大於前三天總和(0分)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>外資籌碼 (20分)</b></td><td>連續買超(20) | 持股增加(15) | 持平(10) | 遞減(5) | 大賣勝前三日(0)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>均線型態 (15分)</b></td><td>三支撐+三翻揚(15分) | 雙支撐+雙翻揚(10分) | 單支撐+單翻揚(5分)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>MACD (10分)</b></td><td>DIF > MACD 柱狀翻紅</td></tr>
-                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>週轉率 (5分)</b></td><td>>8%(5分) | >5%(3分) | >1%(1分)</td></tr>
+                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>週轉率 (5分)</b></td><td>7~10%(5) | 2~6%、11~15%(3) | >1%、15~20%(1) | >20% 或 <1%(0)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>季線趨勢 (5分)</b></td><td>現價 > 60 日前價格</td></tr>
                     </table>
                     <p style="margin-top:15px; font-weight:bold; color:#D4AF37;">🟢 80+ 值得買入 | 🟡 75+ 列入觀察 | 🔴 75- 暫不參考</p>
                 </div>
                 """, unsafe_allow_html=True)
 
-# --- 頁籤 2: 批量多檔掃描 ---
 with tab2:
     st.markdown('<p class="input-label" style="margin-top:20px;">📋 貼上自選股清單 (支援 Excel 直接複製貼上)</p>', unsafe_allow_html=True)
     batch_input = st.text_area("batch_input", height=150, placeholder="例如：\n6530 創威\n5291 邑昇\n4967 十銓", label_visibility="collapsed")
@@ -254,15 +260,13 @@ with tab2:
             if s_id.isalnum(): stock_ids_to_scan.append(s_id)
         stock_ids_to_scan = list(dict.fromkeys(stock_ids_to_scan))
         if not stock_ids_to_scan:
-            st.warning("⚠️ 無法解析股票代號，請確保每一行開頭是數字代號。")
+            st.warning("⚠️ 無法解析股票代號。")
         else:
             st.markdown(f"### 🔍 共偵測到 {len(stock_ids_to_scan)} 檔股票，開始掃描...")
-            progress_bar = st.progress(0); status_text = st.empty()
-            summary_data = []
+            progress_bar = st.progress(0); status_text = st.empty(); summary_data = []
             for i, sid in enumerate(stock_ids_to_scan):
                 progress = int(((i) / len(stock_ids_to_scan)) * 100)
-                progress_bar.progress(progress)
-                status_text.text(f"正在運算: {sid} ({i+1}/{len(stock_ids_to_scan)}) ...")
+                progress_bar.progress(progress); status_text.text(f"正在運算: {sid} ({i+1}/{len(stock_ids_to_scan)}) ...")
                 s_name = stock_mapping.get(sid, "")
                 status, score, results = analyze_single_stock(sid)
                 if status == "success":
@@ -276,12 +280,10 @@ with tab2:
                 time.sleep(0.2)
             progress_bar.progress(100); status_text.text("✅ 掃描完成！")
             if summary_data:
-                df_summary = pd.DataFrame(summary_data)
-                df_summary = df_summary.sort_values(by="總分", ascending=False).reset_index(drop=True)
+                df_summary = pd.DataFrame(summary_data).sort_values(by="總分", ascending=False).reset_index(drop=True)
                 st.markdown("### 🏆 掃描結果排行榜")
                 st.dataframe(df_summary, column_config={"總分": st.column_config.NumberColumn("總分 (100)", format="%d 🌟")}, use_container_width=True, hide_index=True)
-            else:
-                st.error("⚠️ 所有掃描皆失敗或查無資料。")
+            else: st.error("⚠️ 所有掃描皆失敗。")
 
 st.markdown("<br><hr>", unsafe_allow_html=True)
 st.markdown('<div style="font-size: 12px; color: #777; text-align: center;">⚠️ 免責聲明：數據由 FinMind 提供。本工具僅為模擬用途，不構成投資建議。</div>', unsafe_allow_html=True)

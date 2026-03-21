@@ -115,22 +115,19 @@ def analyze_single_stock(stock_id):
     ts = 5 if 7.0 <= turnover <= 10.0 else (3 if (2.0 <= turnover < 7.0 or 10.0 < turnover <= 15.0) else (1 if (1.0 <= turnover < 2.0 or 15.0 < turnover <= 20.0) else 0))
     score += ts; tech_results.append(("週轉率判定", f"實測 {turnover:.2f}%" if total_shares > 0 else "無法估算", f"+{ts}分", "status-pass" if ts==5 else "status-mid" if ts>0 else "status-fail", ""))
     
-    # 🎯 2. KD 位階 (25分) - 結合今日與昨日出貨判定
+    # 2. KD 位階 (25分)
     k_val = today['K']
     v0, v1, v2, v3 = df['Volume'].iloc[-1], df['Volume'].iloc[-2], df['Volume'].iloc[-3], df['Volume'].iloc[-4]
     
-    # 今日狀態
     is_today_black = today['Close'] < today['Open']
     is_today_vol_up = v0 > v1
     is_today_dump = is_today_black and is_today_vol_up
     is_excessive_vol = v0 > (v1 + v2 + v3)
 
-    # 昨日狀態
     is_yest_black = yest['Close'] < yest['Open']
     is_yest_vol_up = v1 > v2
     is_yest_dump = is_yest_black and is_yest_vol_up
 
-    # 邏輯：只要位階偏高(>60)，且近兩日有任一日出現放量黑K，直接防禦擋下
     if k_val > 60 and (is_today_dump or is_yest_dump):
         ks, kc, km = 0, "status-fail", "⚠️ 近兩日放量收黑 (大戶出貨疑慮)"
     elif k_val > 75: 
@@ -199,9 +196,9 @@ def analyze_single_stock(stock_id):
     summary['外資狀態'] = "買超" if fi_s >= 10 else "賣超"
     summary['投信狀態'] = "加持" if it_s >= 3 else "觀望"
 
-    # 評級判定
-    if score >= 80: summary['評級'] = "🟢 值得買入"
-    elif score >= 75: summary['評級'] = "🟡 列入觀察"
+    # 🎯 評級判定門檻修正 (75 / 70 / 69)
+    if score >= 75: summary['評級'] = "🟢 值得買入"
+    elif score >= 70: summary['評級'] = "🟡 列入觀察"
     else: summary['評級'] = "🔴 暫不參考"
     
     return "success", score, {"tech": tech_results, "chip": chip_results, "summary": summary}
@@ -227,20 +224,21 @@ with tab1:
             elif status == "insufficient_data": st.error("⚠️ 該檔股票資料不足，無法進行運算。")
             else:
                 
-                # 🚨 防出貨警報：只要 KD 狀態觸發警告，立刻在最上方亮紅燈
                 if "⚠️" in results['summary']['KD狀態']:
                     st.error(f"🚨 **危險警告**：{display_name} 近兩日內出現了『放量收黑K』！")
                     st.info("💡 雖然指標或籌碼可能尚未完全轉弱，但高檔出現量增價跌，通常代表大戶正在趁亂出貨或換手失敗，建議先避開。")
 
                 col_res_sc, col_res_det = st.columns([1, 2])
                 with col_res_sc:
-                    color = "#2DCC70" if score >= 80 else "#F1C40F" if score >= 75 else "#E74C3C"
+                    # 🎯 儀表板顏色門檻同步修正
+                    color = "#2DCC70" if score >= 75 else "#F1C40F" if score >= 70 else "#E74C3C"
                     st.markdown(f'<div class="score-circle" style="border-color:{color}"><div class="score-text">{score}</div></div>', unsafe_allow_html=True)
                     st.markdown(f"<p style='text-align:center; color:{color}; font-weight:bold; margin-top:10px;'>綜合診斷總分 (滿分100)</p>", unsafe_allow_html=True)
                 with col_res_det:
                     st.markdown(f"## {display_name} 診斷報告")
-                    if score >= 80: st.success(f"🎯 **值得買入**：{results['summary']['KD狀態']}")
-                    elif score >= 75: st.warning("⚠️ **列入觀察**：分數已達標")
+                    # 🎯 文字提示門檻同步修正
+                    if score >= 75: st.success(f"🎯 **值得買入**：{results['summary']['KD狀態']}")
+                    elif score >= 70: st.warning("⚠️ **列入觀察**：分數已達標")
                     else: st.error("❄️ **暫不參考**：綜合評分未達標。")
                     
                     if "🔥" in results['summary']['KD狀態']:
@@ -252,6 +250,7 @@ with tab1:
                 st.markdown("### 🔍 技術面得分細節")
                 for t, d, stg, cls, r in results['tech']: st.markdown(f'<div class="check-item"><div style="flex: 1;"><div class="check-title">{t} ({d})</div><div class="check-reason">{r}</div></div><div class="{cls}">{stg}</div></div>', unsafe_allow_html=True)
 
+                # 🎯 底部說明表門檻同步修正
                 st.markdown("""
                 <div class="weight-box">
                     <h3 style="color:#D4AF37; margin-top:0;">📊 買入評級 - 得分細節說明 (滿分100)</h3>
@@ -264,6 +263,7 @@ with tab1:
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>MACD/季線 (15分)</b></td><td>MACD 翻紅(10) + 價格站上季線(5)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>週轉率 (5分)</b></td><td>7~10%(5) | 2~6%、11~15%(3) | >20%或<1%(0)</td></tr>
                     </table>
+                    <p style="margin-top:15px; font-weight:bold; color:#D4AF37;">🟢 75+ 值得買入 | 🟡 70+ 列入觀察 | 🔴 69 以下 暫不參考</p>
                 </div>
                 """, unsafe_allow_html=True)
 

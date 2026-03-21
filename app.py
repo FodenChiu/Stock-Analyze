@@ -26,7 +26,7 @@ st.markdown("""
     .status-pass { background-color: #1A3E2A; color: #2DCC70; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: bold; border: 1px solid #2DCC70; min-width: 90px; text-align: center; }
     .status-mid { background-color: #3E321A; color: #F1C40F; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: bold; border: 1px solid #F1C40F; min-width: 90px; text-align: center; }
     .status-fail { background-color: #3E1A1A; color: #E74C3C; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: bold; border: 1px solid #E74C3C; min-width: 90px; text-align: center; }
-    input[data-testid="stTextInput"], textarea[data-testid="stTextArea"] { background-color: #1E1E1E !important; color: #EAEAEA !important; border: 1px solid #333 !important; font-size: 16px !important;}
+    input[data-testid="stTextInput"], textarea[data-testid="stTextArea"] { background-color: #1E1E1E !important; color: #EAEAEA !important; border: 1px solid #333 !important; text-align: center; font-size: 18px !important;}
     div[data-baseweb="select"] > div { background-color: #1E1E1E !important; color: #EAEAEA !important; border: 1px solid #333 !important; font-size: 16px !important; }
     ul[role="listbox"] { background-color: #1E1E1E !important; color: #EAEAEA !important; }
     .stTabs [data-baseweb="tab-list"] { gap: 24px; }
@@ -58,10 +58,7 @@ def fetch_total_shares(sid):
             shares = 0
             try: shares = t.fast_info.get('shares', 0)
             except: pass
-            
-            if not shares or shares == 0:
-                shares = t.info.get('sharesOutstanding', 0)
-                
+            if not shares or shares == 0: shares = t.info.get('sharesOutstanding', 0)
             if shares and shares > 0: return shares
         except: continue
     return 0
@@ -117,15 +114,18 @@ def analyze_single_stock(stock_id):
     # 1. 週轉率 (5分)
     ts = 5 if turnover > 8 else (3 if turnover > 5 else (1 if turnover > 1 else 0))
     tc = "status-pass" if ts==5 else ("status-mid" if ts>0 else "status-fail")
-    score += ts; tech_results.append(("週轉率判定", f"實測 {turnover:.2f}%" if total_shares > 0 else "無法估算(無總股數)", f"+{ts}分", tc, "週轉率水平。"))
+    score += ts; tech_results.append(("週轉率判定", f"實測 {turnover:.2f}%" if total_shares > 0 else "無法估算", f"+{ts}分", tc, ""))
     
-    # 2. KD 位階 (25分)
+    # 2. KD 位階 (🎯 修正標籤：小於30動能不足，大於80過熱)
     k_val = today['K']
     if 30 <= k_val <= 45: ks, kc, km = 25, "status-pass", "KD 30~45 起漲黃金區"
-    elif 45 < k_val <= 65: ks, kc, km = 20, "status-mid", "KD 46~65 中位階"
+    elif 45 < k_val <= 65: ks, kc, km = 20, "status-mid", "KD 46~65 中位階穩定"
     elif 65 < k_val <= 70: ks, kc, km = 10, "status-mid", "KD 66~70 稍高位階"
     elif 70 < k_val <= 75: ks, kc, km = 5, "status-fail", "KD 71~75 偏高"
-    else: ks, kc, km = 0, "status-fail", "過熱或動能不足"
+    elif k_val > 80: ks, kc, km = 0, "status-fail", "過熱"
+    elif k_val < 30: ks, kc, km = 0, "status-fail", "動能不足"
+    else: ks, kc, km = 0, "status-fail", "過度拉回" # 涵蓋 75-80 或 其它極端
+    
     score += ks; tech_results.append(("KD 位階", f"K值: {k_val:.1f}", f"+{ks}分", kc, km))
     summary['KD狀態'] = km
     
@@ -134,7 +134,6 @@ def analyze_single_stock(stock_id):
     y_m5, y_m10, y_m20 = yest['5MA'], yest['10MA'], yest['20MA']
     sup_count = sum([c_val > m5, c_val > m10, c_val > m20])
     up_count = sum([m5 > y_m5, m10 > y_m10, m20 > y_m20])
-
     if sup_count == 3 and up_count == 3: mas, mac, mam = 15, "status-pass", "站穩三線且全數翻揚"
     elif sup_count >= 2 and up_count >= 2: mas, mac, mam = 10, "status-mid", "站穩雙線且雙線翻揚"
     elif sup_count >= 1 and up_count >= 1: mas, mac, mam = 5, "status-fail", "站穩單線且單線翻揚"
@@ -174,7 +173,6 @@ def analyze_single_stock(stock_id):
         chip_results.append(("外資籌碼", "無資料", "+0分", "status-fail", "無完整資料"))
         summary['外資狀態'] = "無資料"
 
-    # 評級判定
     if score >= 80: summary['評級'] = "🟢 值得買入"
     elif score >= 75: summary['評級'] = "🟡 列入觀察"
     else: summary['評級'] = "🔴 暫不參考"
@@ -195,10 +193,8 @@ with tab1:
         else:
             selected_option = st.text_input("s_id_single", value="", label_visibility="collapsed", placeholder="請輸入台股代號並按 Enter")
         st.write("")
-        # 按鈕現在只是視覺輔助，真正驅動的是 selected_option 的改變
         st.button("🚀 啟動深度診斷", key="btn_single")
 
-    # 🔥 終極優化：只要輸入框有選到東西，就算沒按按鈕也會自動開始跑！
     if selected_option:
         st.markdown("---")
         stock_id = str(selected_option).split(" ")[0]
@@ -230,7 +226,7 @@ with tab1:
                 <div class="weight-box">
                     <h3 style="color:#D4AF37; margin-top:0;">📊 買入評級 - 得分細節說明 (滿分100)</h3>
                     <table style="width:100%; color:#BBB; font-size:14px;">
-                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>KD 位階 (25分)</b></td><td>30~45(25分) | 46~65(20分) | 66~70(10分) | 71~75(5分)</td></tr>
+                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>KD 位階 (25分)</b></td><td>30~45(25分) | 46~65(20分) | 66~70(10分) | 71~75(5分) | >80(過熱) | <30(動能不足)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>近三天量能 (20分)</b></td><td>逐步增加(20分) | 逐步爆量(15分) | 大於前三天總和(0分)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>外資籌碼 (20分)</b></td><td>連續買超(20) | 持股增加(15) | 持平(10) | 遞減(5) | 大賣勝前三日(0)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>均線型態 (15分)</b></td><td>三支撐+三翻揚(15分) | 雙支撐+雙翻揚(10分) | 單支撐+單翻揚(5分)</td></tr>
@@ -246,7 +242,6 @@ with tab1:
 with tab2:
     st.markdown('<p class="input-label" style="margin-top:20px;">📋 貼上自選股清單 (支援 Excel 直接複製貼上)</p>', unsafe_allow_html=True)
     batch_input = st.text_area("batch_input", height=150, placeholder="例如：\n6530 創威\n5291 邑昇\n4967 十銓", label_visibility="collapsed")
-    # 這裡保留按鈕，因為輸入框按 Enter 會變成換行
     batch_btn = st.button("🚀 啟動批量掃描", key="btn_batch")
 
     if batch_btn and batch_input.strip():
@@ -257,49 +252,34 @@ with tab2:
             if not cleaned: continue
             s_id = cleaned.split()[0]
             if s_id.isalnum(): stock_ids_to_scan.append(s_id)
-        
         stock_ids_to_scan = list(dict.fromkeys(stock_ids_to_scan))
-        
         if not stock_ids_to_scan:
             st.warning("⚠️ 無法解析股票代號，請確保每一行開頭是數字代號。")
         else:
             st.markdown(f"### 🔍 共偵測到 {len(stock_ids_to_scan)} 檔股票，開始掃描...")
-            progress_bar = st.progress(0)
-            status_text = st.empty()
+            progress_bar = st.progress(0); status_text = st.empty()
             summary_data = []
-            
             for i, sid in enumerate(stock_ids_to_scan):
                 progress = int(((i) / len(stock_ids_to_scan)) * 100)
                 progress_bar.progress(progress)
                 status_text.text(f"正在運算: {sid} ({i+1}/{len(stock_ids_to_scan)}) ...")
                 s_name = stock_mapping.get(sid, "")
                 status, score, results = analyze_single_stock(sid)
-                
                 if status == "success":
                     summary_data.append({
-                        "代號": sid,
-                        "名稱": s_name,
-                        "總分": score,
+                        "代號": sid, "名稱": s_name, "總分": score,
                         "評級": results['summary']['評級'],
                         "量能型態": results['summary']['量能狀態'],
                         "外資動向": results['summary']['外資狀態'],
                         "KD位階": results['summary']['KD狀態']
                     })
                 time.sleep(0.2)
-                
-            progress_bar.progress(100)
-            status_text.text("✅ 掃描完成！")
-            
+            progress_bar.progress(100); status_text.text("✅ 掃描完成！")
             if summary_data:
                 df_summary = pd.DataFrame(summary_data)
                 df_summary = df_summary.sort_values(by="總分", ascending=False).reset_index(drop=True)
                 st.markdown("### 🏆 掃描結果排行榜")
-                st.dataframe(
-                    df_summary,
-                    column_config={"總分": st.column_config.NumberColumn("總分 (滿分100)", format="%d 🌟")},
-                    use_container_width=True,
-                    hide_index=True
-                )
+                st.dataframe(df_summary, column_config={"總分": st.column_config.NumberColumn("總分 (100)", format="%d 🌟")}, use_container_width=True, hide_index=True)
             else:
                 st.error("⚠️ 所有掃描皆失敗或查無資料。")
 

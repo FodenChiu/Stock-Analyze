@@ -115,24 +115,32 @@ def analyze_single_stock(stock_id):
     ts = 5 if 7.0 <= turnover <= 10.0 else (3 if (2.0 <= turnover < 7.0 or 10.0 < turnover <= 15.0) else (1 if (1.0 <= turnover < 2.0 or 15.0 < turnover <= 20.0) else 0))
     score += ts; tech_results.append(("週轉率判定", f"實測 {turnover:.2f}%" if total_shares > 0 else "無法估算", f"+{ts}分", "status-pass" if ts==5 else "status-mid" if ts>0 else "status-fail", ""))
     
-    # 🎯 2. KD 位階 (25分) - 防出貨機制
+    # 🎯 2. KD 位階 (25分) - 結合今日與昨日出貨判定
     k_val = today['K']
     v0, v1, v2, v3 = df['Volume'].iloc[-1], df['Volume'].iloc[-2], df['Volume'].iloc[-3], df['Volume'].iloc[-4]
     
-    is_black_k = today['Close'] < today['Open']  # 收黑K
-    is_vol_up = v0 > v1                          # 今日放量
-    is_excessive_vol = v0 > (v1 + v2 + v3)       # 爆量
+    # 今日狀態
+    is_today_black = today['Close'] < today['Open']
+    is_today_vol_up = v0 > v1
+    is_today_dump = is_today_black and is_today_vol_up
+    is_excessive_vol = v0 > (v1 + v2 + v3)
 
-    if k_val > 75: # 進入高檔區
-        if is_black_k and is_vol_up:
-            ks, kc, km = 0, "status-fail", "⚠️ 高檔放量收黑 (出貨疑慮)"
-        elif today['Close'] > today['5MA'] and not is_excessive_vol: 
+    # 昨日狀態
+    is_yest_black = yest['Close'] < yest['Open']
+    is_yest_vol_up = v1 > v2
+    is_yest_dump = is_yest_black and is_yest_vol_up
+
+    # 邏輯：只要位階偏高(>60)，且近兩日有任一日出現放量黑K，直接防禦擋下
+    if k_val > 60 and (is_today_dump or is_yest_dump):
+        ks, kc, km = 0, "status-fail", "⚠️ 近兩日放量收黑 (大戶出貨疑慮)"
+    elif k_val > 75: 
+        if today['Close'] > today['5MA'] and not is_excessive_vol: 
             ks, kc, km = 25, "status-pass", "🔥 高檔強勢鈍化"
         else: 
             ks, kc, km = 0, "status-fail", "過熱且量價背離"
     elif 30 <= k_val <= 45: ks, kc, km = 25, "status-pass", "KD 30~45 起漲黃金區"
-    elif 45 < k_val <= 65: ks, kc, km = 20, "status-mid", "KD 46~65 中位階穩定"
-    elif 65 < k_val <= 75: ks, kc, km = 10, "status-mid", "KD 66~75 稍高位階"
+    elif 45 < k_val <= 60: ks, kc, km = 20, "status-mid", "KD 46~60 中位階穩定"
+    elif 60 < k_val <= 75: ks, kc, km = 10, "status-mid", "KD 61~75 稍高位階"
     elif k_val < 30: ks, kc, km = 0, "status-fail", "動能不足"
     else: ks, kc, km = 0, "status-fail", "位階不明"
     
@@ -213,17 +221,16 @@ with tab1:
         stock_id = str(selected_option).split(" ")[0]
         display_name = selected_option
         with st.spinner(f"正在分析 {display_name} ..."):
-            # 💡 修復 Bug：將接收狀態的變數從 st 改為 status，避免覆蓋 Streamlit
             status, score, results = analyze_single_stock(stock_id)
             if status == "not_found": st.error(f"❌ 查無代號「{stock_id}」。")
             elif status == "error": st.error("⚠️ 伺服器忙碌，請稍後再試。")
             elif status == "insufficient_data": st.error("⚠️ 該檔股票資料不足，無法進行運算。")
             else:
                 
-                # 🚨 十銓防禦機制：如果觸發出貨警報，優先顯示
+                # 🚨 防出貨警報：只要 KD 狀態觸發警告，立刻在最上方亮紅燈
                 if "⚠️" in results['summary']['KD狀態']:
-                    st.error(f"🚨 **危險警告**：{display_name} 雖然指標在高檔，但出現了『放量收黑K』！")
-                    st.info("💡 這通常代表大戶正在趁亂出貨，或是短線追價力道竭盡，買盤接不贏賣盤，建議避開。")
+                    st.error(f"🚨 **危險警告**：{display_name} 近兩日內出現了『放量收黑K』！")
+                    st.info("💡 雖然指標或籌碼可能尚未完全轉弱，但高檔出現量增價跌，通常代表大戶正在趁亂出貨或換手失敗，建議先避開。")
 
                 col_res_sc, col_res_det = st.columns([1, 2])
                 with col_res_sc:
@@ -249,7 +256,7 @@ with tab1:
                 <div class="weight-box">
                     <h3 style="color:#D4AF37; margin-top:0;">📊 買入評級 - 得分細節說明 (滿分100)</h3>
                     <table style="width:100%; color:#BBB; font-size:14px;">
-                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>KD 位階 (25分)</b></td><td>30~45(25) | 46~65(20) | >75鈍化且不爆量(25) | 高檔放量收黑(0)</td></tr>
+                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>KD 位階 (25分)</b></td><td>30~45(25) | 46~60(20) | >75鈍化不爆量(25) | 近兩日放量黑(0)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>量能變化 (20分)</b></td><td>逐步增加(20) | 逐步爆量(15) | 大於前三天總和(0)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>外資核心 (15分)</b></td><td>連續買超(15) | 五日持股增加(10) | 持平(5) | 遞減(3)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>投信加分 (5分)</b></td><td>連續買超(5) | 五日持股增加(3) | 其餘不加分(0)</td></tr>

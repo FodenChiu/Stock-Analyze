@@ -115,11 +115,23 @@ def analyze_single_stock(stock_id):
     score += ks; tech_results.append(("KD 位階", f"K值: {k_val:.1f}", f"+{ks}分", kc, km))
     summary['KD狀態'] = km
     
-    # 3. 均線支撐 (10分)
-    count = sum([today['Close'] > today['5MA'], today['Close'] > today['10MA'], today['Close'] > today['20MA']])
-    mas = 10 if count==3 else (5 if count==2 else (3 if count==1 else 0))
-    mac = "status-pass" if mas==10 else ("status-fail" if mas==0 else "status-mid")
-    score += mas; tech_results.append(("均線支撐", f"收盤:{today['Close']:.1f}", f"+{mas}分", mac, f"站穩 {count} 條均線"))
+    # 🎯 3. 均線綜合型態 (支撐 + 翻揚合併，15分)
+    c_val, m5, m10, m20 = today['Close'], today['5MA'], today['10MA'], today['20MA']
+    y_m5, y_m10, y_m20 = yest['5MA'], yest['10MA'], yest['20MA']
+    
+    sup_count = sum([c_val > m5, c_val > m10, c_val > m20]) # 站穩幾線
+    up_count = sum([m5 > y_m5, m10 > y_m10, m20 > y_m20])   # 翻揚幾線
+
+    if sup_count == 3 and up_count == 3:
+        mas, mac, mam = 15, "status-pass", "站穩三線且全數翻揚，強勢多頭。"
+    elif sup_count >= 2 and up_count >= 2:
+        mas, mac, mam = 10, "status-mid", "站穩雙線且雙線翻揚，多頭成形。"
+    elif sup_count >= 1 and up_count >= 1:
+        mas, mac, mam = 5, "status-fail", "站穩單線且單線翻揚，初步止跌。"
+    else:
+        mas, mac, mam = 0, "status-fail", "均線蓋頭或全數下彎，空頭格局。"
+
+    score += mas; tech_results.append(("均線綜合型態", f"站穩:{sup_count}線 / 翻揚:{up_count}線", f"+{mas}分", mac, mam))
     
     # 4. 近三天量能變化 (20分)
     v0, v1, v2, v3 = df['Volume'].iloc[-1], df['Volume'].iloc[-2], df['Volume'].iloc[-3], df['Volume'].iloc[-4]
@@ -131,13 +143,11 @@ def analyze_single_stock(stock_id):
     score += vs; tech_results.append(("近三天量能", f"今日 {int(v0/1000):,}張", f"+{vs}分", vc, vm))
     summary['量能狀態'] = vm
 
-    # 5. 其他技術面 (20分)
+    # 5. 其他技術面 (MACD 10分 + 季線 5分 = 共 15 分)
     ms = 10 if (today['DIF'] - today['MACD']) > 0 else 0; score += ms
     tech_results.append(("MACD 動能", "柱狀翻紅", f"+{ms}分", "status-pass" if ms else "status-fail", "動能轉正"))
     qs = 5 if len(df) >= 60 and today['Close'] > df.iloc[-60]['Close'] else 0; score += qs
     tech_results.append(("季線趨勢", "現價 > 60日前", f"+{qs}分", "status-pass" if qs else "status-fail", "長線翻多"))
-    ups = 10 if today['5MA'] > yest['5MA'] and today['10MA'] > yest['10MA'] and today['20MA'] > yest['20MA'] else 0; score += ups
-    tech_results.append(("短期均線翻揚", "5/10/20T 向上", f"+{ups}分", "status-pass" if ups else "status-fail", "多頭共識"))
 
     # 6. 外資行為模式判定 (20分)
     chip_data_list = df_chip[['date', 'ForeignInvestmentShares']].tail(5).values.tolist() if not df_chip.empty and "ForeignInvestmentShares" in df_chip.columns else []
@@ -193,7 +203,7 @@ with tab1:
                 with col_res_sc:
                     color = "#2DCC70" if score >= 80 else "#F1C40F" if score >= 75 else "#E74C3C"
                     st.markdown(f'<div class="score-circle" style="border-color:{color}"><div class="score-text">{score}</div></div>', unsafe_allow_html=True)
-                    st.markdown(f"<p style='text-align:center; color:{color}; font-weight:bold; margin-top:10px;'>綜合診斷總分 (滿分105)</p>", unsafe_allow_html=True)
+                    st.markdown(f"<p style='text-align:center; color:{color}; font-weight:bold; margin-top:10px;'>綜合診斷總分 (滿分100)</p>", unsafe_allow_html=True)
                 with col_res_det:
                     st.markdown(f"## {display_name} 診斷報告")
                     if score >= 80: st.success("🎯 **值得買入**：技術面與籌碼面極佳！")
@@ -206,16 +216,14 @@ with tab1:
                 st.markdown("### 🔍 技術面得分細節")
                 for t, d, stg, cls, r in results['tech']: st.markdown(f'<div class="check-item"><div style="flex: 1;"><div class="check-title">{t} ({d})</div><div class="check-reason">{r}</div></div><div class="{cls}">{stg}</div></div>', unsafe_allow_html=True)
 
-                # 🎯 補回：評分細節說明表
                 st.markdown("""
                 <div class="weight-box">
-                    <h3 style="color:#D4AF37; margin-top:0;">📊 買入評級 - 得分細節說明 (滿分105)</h3>
+                    <h3 style="color:#D4AF37; margin-top:0;">📊 買入評級 - 得分細節說明 (滿分100)</h3>
                     <table style="width:100%; color:#BBB; font-size:14px;">
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>KD 位階 (25分)</b></td><td>30~45(25分) | 46~65(20分) | 66~70(10分) | 71~75(5分)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>近三天量能 (20分)</b></td><td>逐步增加(20分) | 逐步爆量(15分) | 大於前三天總和(0分)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>外資籌碼 (20分)</b></td><td>連續買超(20) | 持股增加(15) | 持平(10) | 遞減(5) | 大賣勝前三日(0)</td></tr>
-                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>均線支撐 (10分)</b></td><td>站穩 5/10/20T(10分) | 5/10T(5分) | 5T(3分)</td></tr>
-                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>均線翻揚 (10分)</b></td><td>5T、10T、20T 同步向上</td></tr>
+                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>均線型態 (15分)</b></td><td>三支撐+三翻揚(15分) | 雙支撐+雙翻揚(10分) | 單支撐+單翻揚(5分)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>MACD (10分)</b></td><td>DIF > MACD 柱狀翻紅</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>週轉率 (5分)</b></td><td>>8%(5分) | >5%(3分) | >1%(1分)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>季線趨勢 (5分)</b></td><td>現價 > 60 日前價格</td></tr>
@@ -231,16 +239,14 @@ with tab2:
     batch_btn = st.button("🚀 啟動批量掃描", key="btn_batch")
 
     if batch_btn and batch_input.strip():
-        # 解析使用者貼上的文字
         raw_lines = batch_input.strip().split('\n')
         stock_ids_to_scan = []
         for line in raw_lines:
             cleaned = line.strip()
             if not cleaned: continue
-            s_id = cleaned.split()[0] # 擷取最前面的代號
+            s_id = cleaned.split()[0]
             if s_id.isalnum(): stock_ids_to_scan.append(s_id)
         
-        # 去除重複項
         stock_ids_to_scan = list(dict.fromkeys(stock_ids_to_scan))
         
         if not stock_ids_to_scan:
@@ -249,19 +255,13 @@ with tab2:
             st.markdown(f"### 🔍 共偵測到 {len(stock_ids_to_scan)} 檔股票，開始掃描...")
             progress_bar = st.progress(0)
             status_text = st.empty()
-            
             summary_data = []
             
             for i, sid in enumerate(stock_ids_to_scan):
-                # 更新進度條
                 progress = int(((i) / len(stock_ids_to_scan)) * 100)
                 progress_bar.progress(progress)
                 status_text.text(f"正在運算: {sid} ({i+1}/{len(stock_ids_to_scan)}) ...")
-                
-                # 取得股票名稱
                 s_name = stock_mapping.get(sid, "")
-                
-                # 執行核心運算
                 status, score, results = analyze_single_stock(sid)
                 
                 if status == "success":
@@ -274,31 +274,23 @@ with tab2:
                         "外資動向": results['summary']['外資狀態'],
                         "KD位階": results['summary']['KD狀態']
                     })
-                
-                # 為了避免連續呼叫 API 被阻擋，稍微暫停 0.2 秒
                 time.sleep(0.2)
                 
             progress_bar.progress(100)
             status_text.text("✅ 掃描完成！")
             
             if summary_data:
-                # 轉換為 DataFrame 並按照總分排序
                 df_summary = pd.DataFrame(summary_data)
                 df_summary = df_summary.sort_values(by="總分", ascending=False).reset_index(drop=True)
-                
                 st.markdown("### 🏆 掃描結果排行榜")
-                # 使用 Streamlit 原生的 dataframe 顯示，具備良好的互動性
                 st.dataframe(
                     df_summary,
-                    column_config={
-                        "總分": st.column_config.NumberColumn("總分 (滿分105)", format="%d 🌟"),
-                    },
+                    column_config={"總分": st.column_config.NumberColumn("總分 (滿分100)", format="%d 🌟")},
                     use_container_width=True,
                     hide_index=True
                 )
             else:
                 st.error("⚠️ 所有掃描皆失敗或查無資料。")
 
-# --- 固定顯示的免責聲明 ---
 st.markdown("<br><hr>", unsafe_allow_html=True)
 st.markdown('<div style="font-size: 12px; color: #777; text-align: center;">⚠️ 免責聲明：數據由 FinMind 提供。本工具僅為模擬用途，不構成投資建議。</div>', unsafe_allow_html=True)

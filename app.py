@@ -162,13 +162,17 @@ def analyze_single_stock(stock_id):
         has_3_lim_up = False; has_lim_dn = False
 
     is_today_black = today['Close'] < today['Open']
-    is_today_vol_up = v0 > v1
+    is_today_red = today['Close'] > today['Open']  # 🎯 新增：判斷紅棒
+    is_today_vol_up = v0 > v1                      # 🎯 今日放量
     is_today_dump = is_today_black and is_today_vol_up
     is_excessive_vol = v0 > (v1 + v2 + v3)
 
     is_yest_black = yest['Close'] < yest['Open']
     is_yest_vol_up = v1 > v2
     is_yest_dump = is_yest_black and is_yest_vol_up
+
+    # 🎯 專屬提醒觸發器：KD >= 80 + 量增 + 紅棒
+    summary['show_high_k_warning'] = (k_val >= 80) and is_today_vol_up and is_today_red
 
     if has_3_lim_up:
         ks, kc, km = 0, "status-fail", "⚠️ 近五日連三漲停 (處置妖股風險)"
@@ -276,7 +280,8 @@ with tab1:
                     elif score >= 70: st.warning("⚠️ **列入觀察**：分數已達標")
                     else: st.error("❄️ **暫不參考**：綜合評分未達標。")
                     
-                    if "🔥 高檔鈍化" in results['summary']['KD狀態']:
+                    # 🎯 只在 KD>=80 + 收紅棒 + 量增 時才觸發提醒
+                    if results['summary'].get('show_high_k_warning', False):
                         st.info("💡 **高檔鈍化提醒**：指標極強，但需觀望隔日開盤量能是否遞增，切勿追高。")
 
                 st.markdown("### 🧬 法人籌碼面")

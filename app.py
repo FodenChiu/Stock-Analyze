@@ -111,6 +111,7 @@ def analyze_single_stock(stock_id):
     turnover = (today['Volume'] / total_shares) * 100 if total_shares > 0 else 0
     score = 0; tech_results = []; chip_results = []; summary = {}
     
+    # 🎯 提前計算法人籌碼
     fi_s = 0
     if not df_fi.empty and len(df_fi) >= 5:
         fi_sh = df_fi['ForeignInvestmentShares'].tail(5).tolist()
@@ -133,11 +134,23 @@ def analyze_single_stock(stock_id):
     chip_score_total = fi_s + it_s
     is_chip_weak = chip_score_total < 10 
 
-    # 1. 週轉率 (5分)
-    ts = 5 if 7.0 <= turnover <= 10.0 else (3 if (2.0 <= turnover < 7.0 or 10.0 < turnover <= 15.0) else (1 if (1.0 <= turnover < 2.0 or 15.0 < turnover <= 20.0) else 0))
-    score += ts; tech_results.append(("週轉率判定", f"實測 {turnover:.2f}%" if total_shares > 0 else "無法估算", f"+{ts}分", "status-pass" if ts==5 else "status-mid" if ts>0 else "status-fail", ""))
+    # 🎯 1. 週轉率 (5分) - 更新邏輯
+    if 6.0 <= turnover <= 10.0:
+        ts = 5
+        tc = "status-pass"
+    elif (3.0 <= turnover < 6.0) or (10.0 < turnover <= 15.0):
+        ts = 3
+        tc = "status-mid"
+    elif 15.0 < turnover <= 20.0:
+        ts = 1
+        tc = "status-mid"
+    else:  # < 3.0 或 > 20.0
+        ts = 0
+        tc = "status-fail"
+        
+    score += ts; tech_results.append(("週轉率判定", f"實測 {turnover:.2f}%" if total_shares > 0 else "無法估算", f"+{ts}分", tc, ""))
     
-    # 2. KD 位階 (25分) 
+    # 2. KD 位階 (25分)
     k_val = today['K']
     v0, v1, v2, v3 = df['Volume'].iloc[-1], df['Volume'].iloc[-2], df['Volume'].iloc[-3], df['Volume'].iloc[-4]
     
@@ -223,7 +236,7 @@ def analyze_single_stock(stock_id):
     summary['外資狀態'] = "買超" if fi_s >= 10 else "賣超"
     summary['投信狀態'] = "加持" if it_s >= 3 else "觀望"
 
-    # 🎯 評級判定門檻更新 75 / 66 / 65
+    # 評級判定
     if score >= 75: summary['評級'] = "🟢 值得買入"
     elif score >= 66: summary['評級'] = "🟡 列入觀察"
     else: summary['評級'] = "🔴 暫不參考"
@@ -262,13 +275,11 @@ with tab1:
 
                 col_res_sc, col_res_det = st.columns([1, 2])
                 with col_res_sc:
-                    # 🎯 儀表板顏色同步更新 75 / 66 / 65
                     color = "#2DCC70" if score >= 75 else "#F1C40F" if score >= 66 else "#E74C3C"
                     st.markdown(f'<div class="score-circle" style="border-color:{color}"><div class="score-text">{score}</div></div>', unsafe_allow_html=True)
                     st.markdown(f"<p style='text-align:center; color:{color}; font-weight:bold; margin-top:10px;'>綜合診斷總分 (滿分100)</p>", unsafe_allow_html=True)
                 with col_res_det:
                     st.markdown(f"## {display_name} 診斷報告")
-                    # 🎯 文字提示同步更新
                     if score >= 75: st.success(f"🎯 **值得買入**：{results['summary']['KD狀態']}")
                     elif score >= 66: st.warning("⚠️ **列入觀察**：分數已達標")
                     else: st.error("❄️ **暫不參考**：綜合評分未達標。")
@@ -293,7 +304,7 @@ with tab1:
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>投信加分 (5分)</b></td><td>連續買超(5) | 五日持股增加(3) | 其餘不加分(0)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>均線型態 (15分)</b></td><td>三支撐+三翻揚(15) | 雙支撐+雙翻揚(10) | 單支撐+單翻揚(5)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>MACD/季線 (15分)</b></td><td>MACD 翻紅(10) + 價格站上季線(5)</td></tr>
-                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>週轉率 (5分)</b></td><td>7~10%(5) | 2~6%、11~15%(3) | >20%或<1%(0)</td></tr>
+                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>週轉率 (5分)</b></td><td>6~10%(5) | 3~5%、11~15%(3) | 16~20%(1) | >20%或<3%(0)</td></tr>
                     </table>
                     <p style="margin-top:15px; font-weight:bold; color:#D4AF37;">🟢 75+ 值得買入 | 🟡 66+ 列入觀察 | 🔴 65 以下 暫不參考</p>
                 </div>

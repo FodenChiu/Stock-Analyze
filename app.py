@@ -1,293 +1,194 @@
-import streamlit as st
-import pandas as pd
 import requests
+import pandas as pd
+import ta
+import os
 import datetime
-import yfinance as yf
-import time
 
-# --- 🚀 全局介面與 Token 設定 ---
-st.set_page_config(page_title="台股短線買入評級", page_icon="⚡", layout="wide")
+# ==========================================
+# 1. 參數設定區 (請務必在此填入你的 Token)
+# ==========================================
+FINMIND_TOKEN = "你的_TOKEN_貼在這裡" 
+TARGET_DATE = datetime.date.today().strftime("%Y-%m-%d")
 
-FINMIND_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJkYXRlIjoiMjAyNi0wMy0xOSAyMjo1Njo0NyIsInVzZXJfaWQiOiJGb2RlbkNoaXUiLCJlbWFpbCI6InlpaGFuY2hpdTExMDZAZ21haWwuY29tIiwiaXAiOiI0OS4xNTkuMjE3LjIwMiJ9.yYlYV7Y-PPQJxR6amyp9mDsK5su2T4HsZO0oYpotMEg"
+# 自動偵測桌面快取路徑
+HOME = os.path.expanduser("~")
+DESKTOP = os.path.join(HOME, "Desktop")
+if not os.path.exists(DESKTOP): DESKTOP = os.path.join(HOME, "OneDrive", "桌面")
+CACHE_DIR = os.path.join(DESKTOP, "Stock_Data", TARGET_DATE)
+if not os.path.exists(CACHE_DIR): os.makedirs(CACHE_DIR)
 
-st.markdown("""
-<style>
-    html, body, [data-testid="stAppViewContainer"] {
-        font-family: "Microsoft JhengHei", sans-serif;
-        background-color: #121212; color: #EAEAEA;
-    }
-    .main-title { color: #D4AF37; font-weight: bold; margin-bottom: 5px; }
-    .input-label { font-size: 15px; font-weight: bold; color: #D4AF37; margin-bottom: 5px; }
-    .weight-box { background-color: #1A1A1A; border: 1px solid #D4AF37; border-radius: 8px; padding: 20px; margin-top: 30px; margin-bottom: 20px; }
-    .check-item { background-color: #1E1E1E; border-radius: 12px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); margin-bottom: 15px; border: 1px solid #333; display: flex; align-items: center; }
-    .score-circle { background-color: #121212; border-radius: 50%; width: 130px; height: 130px; display: flex; align-items: center; justify-content: center; border: 10px solid #333; margin: 0 auto; box-shadow: 0 0 15px rgba(212, 175, 55, 0.2); }
-    .score-text { font-size: 42px; font-weight: bold; color: #D4AF37; }
-    .stButton > button { background-color: #D4AF37 !important; color: #121212 !important; font-weight: bold !important; border-radius: 8px !important; width: 100%; height: 50px; font-size: 16px !important; }
-    .status-pass { background-color: #1A3E2A; color: #2DCC70; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: bold; border: 1px solid #2DCC70; min-width: 90px; text-align: center; }
-    .status-mid { background-color: #3E321A; color: #F1C40F; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: bold; border: 1px solid #F1C40F; min-width: 90px; text-align: center; }
-    .status-fail { background-color: #3E1A1A; color: #E74C3C; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: bold; border: 1px solid #E74C3C; min-width: 90px; text-align: center; }
-    input[data-testid="stTextInput"], textarea[data-testid="stTextArea"] { background-color: #1E1E1E !important; color: #EAEAEA !important; border: 1px solid #333 !important; text-align: center; font-size: 18px !important;}
-    div[data-baseweb="select"] > div { background-color: #1E1E1E !important; color: #EAEAEA !important; border: 1px solid #333 !important; font-size: 16px !important; }
-    ul[role="listbox"] { background-color: #1E1E1E !important; color: #EAEAEA !important; }
-    .stTabs [data-baseweb="tab-list"] { gap: 24px; }
-    .stTabs [data-baseweb="tab"] { height: 50px; white-space: pre-wrap; background-color: #1A1A1A; border-radius: 8px 8px 0 0; padding: 10px 20px; color: #BBB; font-weight: bold; border: 1px solid #333; border-bottom: none; }
-    .stTabs [aria-selected="true"] { background-color: #D4AF37 !important; color: #121212 !important; border-color: #D4AF37 !important; }
-</style>
-""", unsafe_allow_html=True)
-
-st.markdown('<h1 class="main-title" style="text-align:center;">⚡ 台股短線買入評級</h1>', unsafe_allow_html=True)
-st.write("") 
-
-# --- 🎯 數據庫引擎 ---
-@st.cache_data(ttl=86400)
-def fetch_stock_mapping():
+def get_stock_list():
+    """【第一層】精確產業正面表列"""
+    url = "https://api.finmindtrade.com/api/v4/data"
+    params = {"dataset": "TaiwanStockInfo", "token": FINMIND_TOKEN}
     try:
-        url = "https://api.finmindtrade.com/api/v4/data"
-        params = {"dataset": "TaiwanStockInfo", "token": FINMIND_TOKEN}
-        res = requests.get(url, params=params, timeout=10).json()
-        if res.get("msg") == "success":
-            return dict(zip(pd.DataFrame(res["data"])['stock_id'], pd.DataFrame(res["data"])['stock_name']))
-        return {}
-    except: return {}
+        resp = requests.get(url, params=params).json()
+        df = pd.DataFrame(resp['data'])
+        df = df[(df['type'].isin(['twse', 'tpex'])) & (df['stock_id'].str.len() == 4)]
+        df = df[df['stock_id'].str.isdigit() & (~df['stock_id'].str.startswith('0'))]
+        df = df[~df['stock_name'].str.endswith('KY')]
+        
+        target_industries = [
+            '半導體業', '電腦及週邊設備業', '電子零組件業', '通信網路業', 
+            '光電業', '其他電子業', '電子通路業', '資訊服務業', 
+            '生技醫療業', '電機機械', '金融業', '電子商務', '綠能環保'
+        ]
+        df = df[df['industry_category'].str.contains('|'.join(target_industries), na=False)]
+        
+        exclude_keywords = ['遊戲', '文化創意', '貿易', '百貨', '觀光', '居家', '生活']
+        df = df[~df['industry_category'].str.contains('|'.join(exclude_keywords), na=False)]
+        return df[['stock_id', 'stock_name']].values.tolist()
+    except: return []
 
-@st.cache_data(ttl=86400)
-def fetch_total_shares(sid):
-    for ext in [".TW", ".TWO"]:
-        try:
-            t = yf.Ticker(f"{sid}{ext}")
-            shares = t.fast_info.get('shares', 0)
-            if not shares or shares == 0: shares = t.info.get('sharesOutstanding', 0)
-            if shares and shares > 0: return shares
-        except: continue
-    return 0
-
-@st.cache_data(ttl=900)
-def fetch_finmind_data(sid):
+def fetch_or_load_data(sid, dataset_name):
+    """【快取功能】優先讀取本地 CSV"""
+    file_path = os.path.join(CACHE_DIR, f"{sid}_{dataset_name}.csv")
+    if os.path.exists(file_path): return pd.read_csv(file_path)
+    
+    url = "https://api.finmindtrade.com/api/v4/data"
+    start = (datetime.date.today() - datetime.timedelta(days=120)).strftime("%Y-%m-%d")
+    params = {"dataset": dataset_name, "data_id": sid, "start_date": start, "token": FINMIND_TOKEN}
     try:
-        end_date = datetime.datetime.now().strftime("%Y-%m-%d")
-        start_date = (datetime.datetime.now() - datetime.timedelta(days=150)).strftime("%Y-%m-%d")
-        url = "https://api.finmindtrade.com/api/v4/data"
-        res_p = requests.get(url, params={"dataset": "TaiwanStockPrice", "data_id": sid, "start_date": start_date, "end_date": end_date, "token": FINMIND_TOKEN}, timeout=10).json()
-        if res_p.get("msg") != "success" or not res_p.get("data"): return None, None, None
-        df = pd.DataFrame(res_p["data"])
-        df.rename(columns={'open': 'Open', 'max': 'High', 'min': 'Low', 'close': 'Close', 'Trading_Volume': 'Volume'}, inplace=True)
-        for col in ['Open', 'High', 'Low', 'Close', 'Volume']: df[col] = pd.to_numeric(df[col])
-        res_fi = requests.get(url, params={"dataset": "TaiwanStockShareholding", "data_id": sid, "start_date": (datetime.datetime.now() - datetime.timedelta(days=20)).strftime("%Y-%m-%d"), "end_date": end_date, "token": FINMIND_TOKEN}, timeout=10).json()
-        df_fi = pd.DataFrame(res_fi.get("data", []))
-        res_it = requests.get(url, params={"dataset": "TaiwanStockHoldingTrust", "data_id": sid, "start_date": (datetime.datetime.now() - datetime.timedelta(days=20)).strftime("%Y-%m-%d"), "end_date": end_date, "token": FINMIND_TOKEN}, timeout=10).json()
-        df_it = pd.DataFrame(res_it.get("data", []))
-        return df, df_fi, df_it
-    except Exception as e: return "error", None, None
+        data = requests.get(url, params=params).json().get('data', [])
+        if not data: return None
+        df = pd.DataFrame(data)
+        df.to_csv(file_path, index=False)
+        return df
+    except: return None
 
-stock_mapping = fetch_stock_mapping()
-stock_list = [f"{k} {v}" for k, v in stock_mapping.items()]
+def calculate_master_score(sid, df_p):
+    """依照滿分 100 評級邏輯進行計分 (優化量能邏輯)"""
+    df = df_p.sort_values('date').reset_index(drop=True)
+    
+    stoch = ta.momentum.StochasticOscillator(high=df['max'], low=df['min'], close=df['close'], window=9)
+    df['K'], macd = stoch.stoch(), ta.trend.MACD(close=df['close'])
+    df['MACD_hist'] = macd.macd_diff()
+    df['ma5'] = df['close'].rolling(5).mean()
+    df['ma10'] = df['close'].rolling(10).mean()
+    df['ma20'] = df['close'].rolling(20).mean()
+    
+    td, yd, yyd, yyyd = df.iloc[-1], df.iloc[-2], df.iloc[-3], df.iloc[-4]
+    score = 0
+    tags = []
 
-# --- 🎯 核心運算引擎 ---
-def analyze_single_stock(stock_id):
-    df, df_fi, df_it = fetch_finmind_data(stock_id)
-    if df is None: return "not_found", None, None
-    if isinstance(df, str) and df == "error": return "error", None, None
-    if len(df) < 10: return "insufficient_data", None, None
+    # 1. KD 位階 (25分) + 高檔鈍化提醒
+    k = td['K']
+    if 30 <= k <= 45: score += 25; tags.append(f"KD({round(k,1)})[+25]")
+    elif 46 <= k <= 65: score += 20; tags.append(f"KD({round(k,1)})[+20]")
+    elif 66 <= k <= 70: score += 10; tags.append(f"KD({round(k,1)})[+10]")
+    elif 71 <= k <= 75: score += 5; tags.append(f"KD({round(k,1)})[+5]")
+    elif k > 80: tags.append(f"KD>80(留意鈍化)[0]")
+    elif k < 30: tags.append(f"KD<30[0]")
 
-    df['5MA'] = df['Close'].rolling(5).mean(); df['10MA'] = df['Close'].rolling(10).mean(); df['20MA'] = df['Close'].rolling(20).mean()
-    df['5VMA'] = df['Volume'].rolling(5).mean()
-    df['9L'], df['9H'] = df['Low'].rolling(9).min(), df['High'].rolling(9).max()
-    df['RSV'] = 100 * (df['Close'] - df['9L']) / (df['9H'] - df['9L'] + 1e-9)
-    df['K'] = df['RSV'].ewm(com=2, adjust=False).mean()
-    df['DIF'] = df['Close'].ewm(span=12, adjust=False).mean() - df['Close'].ewm(span=26, adjust=False).mean()
-    df['MACD'] = df['DIF'].ewm(span=9, adjust=False).mean()
+    # 2. 溫和量能優化 (20分)
+    v0, v1, v2, v3 = td['Trading_Volume'], yd['Trading_Volume'], yyd['Trading_Volume'], yyyd['Trading_Volume']
+    v_ma5 = df['Trading_Volume'].tail(5).mean()
+    v_ma20 = df['Trading_Volume'].tail(20).mean()
     
-    today, yest = df.iloc[-1], df.iloc[-2]
-    total_shares = fetch_total_shares(stock_id)
-    
-    if total_shares <= 0 and not df_chip.empty and "ForeignInvestmentSharesRatio" in df_chip.columns and "ForeignInvestmentShares" in df_chip.columns:
-        try:
-            latest_chip = df_chip.iloc[-1]
-            ratio = float(latest_chip.get('ForeignInvestmentSharesRatio', 0))
-            f_shares = float(latest_chip.get('ForeignInvestmentShares', 0))
-            if ratio > 0: total_shares = f_shares / (ratio / 100)
-        except: pass
-        
-    turnover = (today['Volume'] / total_shares) * 100 if total_shares > 0 else 0
-    score = 0; tech_results = []; chip_results = []; summary = {}
-    
-    # 1. 週轉率 (5分)
-    ts = 5 if 7.0 <= turnover <= 10.0 else (3 if (2.0 <= turnover < 7.0 or 10.0 < turnover <= 15.0) else (1 if (1.0 <= turnover < 2.0 or 15.0 < turnover <= 20.0) else 0))
-    score += ts; tech_results.append(("週轉率判定", f"實測 {turnover:.2f}%" if total_shares > 0 else "無法估算", f"+{ts}分", "status-pass" if ts==5 else "status-mid" if ts>0 else "status-fail", ""))
-    
-    # 🎯 2. KD 位階 (25分) 
-    k_val = today['K']
-    # 退回近三天量能取值
-    v0, v1, v2, v3 = df['Volume'].iloc[-1], df['Volume'].iloc[-2], df['Volume'].iloc[-3], df['Volume'].iloc[-4]
-    
-    is_today_black = today['Close'] < today['Open']
-    is_today_vol_up = v0 > v1
-    is_today_dump = is_today_black and is_today_vol_up
-    
-    # 爆量判定退回：今日量大於前三天總和
-    is_excessive_vol = v0 > (v1 + v2 + v3)
+    # 防禦：異常爆量
+    if v0 > (v1 + v2 + v3) or v0 > (v_ma5 * 3):
+        tags.append("異常爆量避開[0]")
+    # 完美溫和推升：大於昨日，但低於 5日均量 2.5倍
+    elif v0 > v1 and v0 <= (v_ma5 * 2.5):
+        score += 20; tags.append("溫和放量[+20]")
+    # 量縮強勢洗盤：低於昨日，但人氣仍大於月均量
+    elif v0 < v1 and v0 >= v_ma20:
+        score += 15; tags.append("量縮強勢整理[+15]")
+    # 短線出量：大於 2.5 倍，但還沒到 3 倍失控
+    elif v0 > v1 and v0 > (v_ma5 * 2.5):
+        score += 10; tags.append("短線出量[+10]")
+    else:
+        tags.append("量能平庸[0]")
 
-    is_yest_black = yest['Close'] < yest['Open']
-    is_yest_vol_up = v1 > v2
-    is_yest_dump = is_yest_black and is_yest_vol_up
-
-    if k_val > 60 and (is_today_dump or is_yest_dump):
-        ks, kc, km = 0, "status-fail", "⚠️ 近兩日放量收黑 (大戶出貨疑慮)"
-    elif k_val > 75: 
-        if today['Close'] > today['5MA'] and not is_excessive_vol: 
-            ks, kc, km = 25, "status-pass", "🔥 高檔強勢鈍化"
-        else: 
-            ks, kc, km = 0, "status-fail", "過熱且量價背離"
-    elif 30 <= k_val <= 45: ks, kc, km = 25, "status-pass", "KD 30~45 起漲黃金區"
-    elif 45 < k_val <= 60: ks, kc, km = 20, "status-mid", "KD 46~60 中位階穩定"
-    elif 60 < k_val <= 75: ks, kc, km = 10, "status-mid", "KD 61~75 稍高位階"
-    elif k_val < 30: ks, kc, km = 0, "status-fail", "動能不足"
-    else: ks, kc, km = 0, "status-fail", "位階不明"
+    # 3. 均線型態 (15分)
+    pairs = 0
+    if td['close'] > td['ma5'] and td['ma5'] > yd['ma5']: pairs += 1
+    if td['close'] > td['ma10'] and td['ma10'] > yd['ma10']: pairs += 1
+    if td['close'] > td['ma20'] and td['ma20'] > yd['ma20']: pairs += 1
     
-    score += ks; tech_results.append(("KD 位階", f"K值: {k_val:.1f}", f"+{ks}分", kc, km))
-    summary['KD狀態'] = km
-    
-    # 3. 均線綜合型態 (15分)
-    c_val, m5, m10, m20 = today['Close'], today['5MA'], today['10MA'], today['20MA']
-    y_m5, y_m10, y_m20 = yest['5MA'], yest['10MA'], yest['20MA']
-    sup_count = sum([c_val > m5, c_val > m10, c_val > m20])
-    up_count = sum([m5 > y_m5, m10 > y_m10, m20 > y_m20])
+    if pairs == 3: score += 15; tags.append("三支撐+翻揚[+15]")
+    elif pairs == 2: score += 10; tags.append("雙支撐+翻揚[+10]")
+    elif pairs == 1: score += 5; tags.append("單支撐+翻揚[+5]")
 
-    if sup_count == 3 and up_count == 3: mas, mac, mam = 15, "status-pass", "站穩三線且全數翻揚"
-    elif sup_count >= 2 and up_count >= 2: mas, mac, mam = 10, "status-mid", "站穩雙線且雙線翻揚"
-    elif sup_count >= 1 and up_count >= 1: mas, mac, mam = 5, "status-fail", "站穩單線且單線翻揚"
-    else: mas, mac, mam = 0, "status-fail", "均線蓋頭或全數下彎"
-    score += mas; tech_results.append(("均線綜合型態", f"站穩:{sup_count}線 / 翻揚:{up_count}線", f"+{mas}分", mac, mam))
-    
-    # 🎯 4. 近三天量能變化 (20分)
-    if is_excessive_vol: 
-        vs, vc, vm = 0, "status-fail", "大於前三天總和(過熱)"
-    elif v0 > v1 and v1 > v2:
-        if v0 >= 1.5 * v1: vs, vc, vm = 15, "status-mid", "連續增加(逐步爆量)"
-        else: vs, vc, vm = 20, "status-pass", "穩健逐步量增"
-    else: 
-        vs, vc, vm = 0, "status-fail", "量能未連續增加"
-        
-    score += vs; tech_results.append(("近三天量能", f"今日 {int(v0/1000):,}張", f"+{vs}分", vc, vm))
-    summary['量能狀態'] = vm
+    # 4. MACD (10分)
+    if td['MACD_hist'] > 0 and td['MACD_hist'] > yd['MACD_hist']:
+        score += 10; tags.append("MACD翻紅[+10]")
 
-    # 5. 其他技術面 (15分)
-    ms = 10 if (today['DIF'] - today['MACD']) > 0 else 0; score += ms
-    tech_results.append(("MACD 動能", "柱狀翻紅", f"+{ms}分", "status-pass" if ms else "status-fail", "動能轉正"))
-    qs = 5 if len(df) >= 60 and today['Close'] > df.iloc[-60]['Close'] else 0; score += qs
-    tech_results.append(("季線趨勢", "現價 > 60日前", f"+{qs}分", "status-pass" if qs else "status-fail", "長線翻多"))
+    # 5. 季線趨勢 (5分)
+    if len(df) > 60:
+        if td['close'] > df['close'].iloc[-61]: 
+            score += 5; tags.append("季線向上[+5]")
 
-    # 6. 法人籌碼行為模式判定 (外資15 + 投信5)
-    fi_s = 0
-    if not df_fi.empty and len(df_fi) >= 5:
-        fi_sh = df_fi['ForeignInvestmentShares'].tail(5).tolist()
-        fi_d = [fi_sh[i] - fi_sh[i-1] for i in range(1, 5)]
-        p_buys = sum([d for d in fi_d[:3] if d > 0])
-        if fi_d[3] < 0 and abs(fi_d[3]) > p_buys: fi_s = 0
-        elif all(d > 0 for d in fi_d[1:]): fi_s = 15 
-        elif fi_sh[4] > fi_sh[0]: fi_s = 10 
-        elif fi_sh[4] == fi_sh[0]: fi_s = 5 
-        else: fi_s = 3
-    
-    it_s = 0
-    if not df_it.empty and len(df_it) >= 5:
-        it_sh = df_it['HoldingShares'].tail(5).tolist()
-        it_d = [it_sh[i] - it_sh[i-1] for i in range(1, 5)]
-        if all(d > 0 for d in it_d[1:]): it_s = 5 
-        elif it_sh[4] > it_sh[0]: it_s = 3 
-        else: it_s = 0 
-    
-    score += (fi_s + it_s)
-    chip_results.append(("法人籌碼 (外資15 + 投信5)", f"外資:{fi_s} / 投信:{it_s}", f"+{fi_s+it_s}分", "status-pass" if (fi_s+it_s)>=15 else "status-mid", f"外資{'買超' if fi_s>=10 else '普通'}，投信{'加持' if it_s>0 else '觀望'}"))
-    summary['外資狀態'] = "買超" if fi_s >= 10 else "賣超"
-    summary['投信狀態'] = "加持" if it_s >= 3 else "觀望"
-
-    # 評級判定
-    if score >= 75: summary['評級'] = "🟢 值得買入"
-    elif score >= 70: summary['評級'] = "🟡 列入觀察"
-    else: summary['評級'] = "🔴 暫不參考"
-    
-    return "success", score, {"tech": tech_results, "chip": chip_results, "summary": summary}
-
-# --- 🎯 雙頁籤介面設計 ---
-tab1, tab2 = st.tabs(["🎯 單檔深度診斷", "📊 批量多檔掃描"])
-
-with tab1:
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.markdown('<p class="input-label" style="text-align:center; margin-top:20px;">📍 請輸入台股代號並按 Enter</p>', unsafe_allow_html=True)
-        selected_option = st.selectbox("s_id_single", options=stock_list, index=None, placeholder="🔍 搜尋股票", label_visibility="collapsed")
-    
-    if selected_option:
-        st.markdown("---")
-        stock_id = str(selected_option).split(" ")[0]
-        display_name = selected_option
-        with st.spinner(f"正在分析 {display_name} ..."):
-            status, score, results = analyze_single_stock(stock_id)
-            if status == "not_found": st.error(f"❌ 查無代號「{stock_id}」。")
-            elif status == "error": st.error("⚠️ 伺服器忙碌，請稍後再試。")
-            elif status == "insufficient_data": st.error("⚠️ 該檔股票資料不足，無法進行運算。")
-            else:
-                
-                if "⚠️" in results['summary']['KD狀態']:
-                    st.error(f"🚨 **危險警告**：{display_name} 近兩日內出現了『放量收黑K』！")
-                    st.info("💡 雖然指標或籌碼可能尚未完全轉弱，但高檔出現量增價跌，通常代表大戶正在趁亂出貨或換手失敗，建議先避開。")
-
-                col_res_sc, col_res_det = st.columns([1, 2])
-                with col_res_sc:
-                    color = "#2DCC70" if score >= 75 else "#F1C40F" if score >= 70 else "#E74C3C"
-                    st.markdown(f'<div class="score-circle" style="border-color:{color}"><div class="score-text">{score}</div></div>', unsafe_allow_html=True)
-                    st.markdown(f"<p style='text-align:center; color:{color}; font-weight:bold; margin-top:10px;'>綜合診斷總分 (滿分100)</p>", unsafe_allow_html=True)
-                with col_res_det:
-                    st.markdown(f"## {display_name} 診斷報告")
-                    if score >= 75: st.success(f"🎯 **值得買入**：{results['summary']['KD狀態']}")
-                    elif score >= 70: st.warning("⚠️ **列入觀察**：分數已達標")
-                    else: st.error("❄️ **暫不參考**：綜合評分未達標。")
+    # --- 籌碼與週轉率 ---
+    turnover = 0
+    if score >= 30:
+        # 6. 土洋籌碼 (外資+投信) (20分)
+        di = fetch_or_load_data(sid, "TaiwanStockInstitutionalInvestorsBuySell")
+        if di is not None and not di.empty:
+            di_filtered = di[di['name'].isin(['Foreign_Investor', 'Investment_Trust'])]
+            if not di_filtered.empty:
+                daily_net = di_filtered.groupby('date').apply(lambda x: x['buy'].sum() - x['sell'].sum())
+                if len(daily_net) >= 4:
+                    net0, net1, net2, net3 = daily_net.iloc[-1], daily_net.iloc[-2], daily_net.iloc[-3], daily_net.iloc[-4]
                     
-                    if "🔥" in results['summary']['KD狀態']:
-                        st.success("💡 **強勢鈍化**：動能極強，守穩 5MA 續強。")
+                    if net0 < 0 and abs(net0) > (max(0, net1) + max(0, net2) + max(0, net3)):
+                        tags.append("土洋大賣[0]")
+                    elif net0 > 0 and net1 > 0 and net2 > 0:
+                        score += 20; tags.append("土洋連買[+20]")
+                    elif net0 > 0:
+                        score += 15; tags.append("土洋增持[+15]")
+                    elif net0 == 0:
+                        score += 10; tags.append("土洋持平[+10]")
+                    elif net0 < 0:
+                        score += 5; tags.append("土洋遞減[+5]")
 
-                st.markdown("### 🧬 法人籌碼面 (外資15 + 投信5)")
-                for t, d, stg, cls, r in results['chip']: st.markdown(f'<div class="check-item"><div style="flex: 1;"><div class="check-title">{t} ({d})</div><div class="check-reason">{r}</div></div><div class="{cls}">{stg}</div></div>', unsafe_allow_html=True)
+        # 7. 週轉率 (5分)
+        ds = fetch_or_load_data(sid, "TaiwanStockShareholdersResidue")
+        if ds is not None and not ds.empty:
+            issued = ds.iloc[-1]['numberOfSharesIssued']
+            turnover = (td['Trading_Volume'] / issued) * 100
+            if 7 <= turnover <= 10: score += 5; tags.append("週轉7~10%[+5]")
+            elif (2 <= turnover < 7) or (11 <= turnover <= 15): score += 3; tags.append("週轉達標[+3]")
+            elif (1 < turnover < 2) or (15 < turnover <= 20): score += 1; tags.append("週轉微熱[+1]")
+            elif turnover > 20 or turnover <= 1: tags.append("週轉過熱/冷清[0]")
 
-                st.markdown("### 🔍 技術面得分細節")
-                for t, d, stg, cls, r in results['tech']: st.markdown(f'<div class="check-item"><div style="flex: 1;"><div class="check-title">{t} ({d})</div><div class="check-reason">{r}</div></div><div class="{cls}">{stg}</div></div>', unsafe_allow_html=True)
+    return score, tags, td, turnover
 
-                st.markdown("""
-                <div class="weight-box">
-                    <h3 style="color:#D4AF37; margin-top:0;">📊 買入評級 - 得分細節說明 (滿分100)</h3>
-                    <table style="width:100%; color:#BBB; font-size:14px;">
-                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>KD 位階 (25分)</b></td><td>30~45(25) | 46~60(20) | >75鈍化不爆量(25) | 近兩日放量黑(0)</td></tr>
-                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>近三天量能 (20分)</b></td><td>連三日遞增(20) | 逐步爆量(15) | 大於前三天總和(0)</td></tr>
-                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>外資核心 (15分)</b></td><td>連續買超(15) | 五日持股增加(10) | 持平(5) | 遞減(3)</td></tr>
-                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>投信加分 (5分)</b></td><td>連續買超(5) | 五日持股增加(3) | 其餘不加分(0)</td></tr>
-                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>均線型態 (15分)</b></td><td>三支撐+三翻揚(15) | 雙支撐+雙翻揚(10) | 單支撐+單翻揚(5)</td></tr>
-                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>MACD/季線 (15分)</b></td><td>MACD 翻紅(10) + 價格站上季線(5)</td></tr>
-                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>週轉率 (5分)</b></td><td>7~10%(5) | 2~6%、11~15%(3) | >20%或<1%(0)</td></tr>
-                    </table>
-                    <p style="margin-top:15px; font-weight:bold; color:#D4AF37;">🟢 75+ 值得買入 | 🟡 70+ 列入觀察 | 🔴 69 以下 暫不參考</p>
-                </div>
-                """, unsafe_allow_html=True)
+def main():
+    print(f"--- 啟動【本機版：溫和推升評級掃描器】 ---")
+    print(f"📁 資料快取目錄：{CACHE_DIR}")
+    
+    stocks = get_stock_list()
+    if not stocks:
+        print("❌ 找不到股票名單，請確認網路或 API Token 是否正確。")
+        return
+    
+    res_list = []
+    total = len(stocks)
+    for i, (sid, sname) in enumerate(stocks):
+        print(f"[{i+1}/{total}] 分析中: {sid} {sname}...", end="\r")
+        
+        dp = fetch_or_load_data(sid, "TaiwanStockPrice")
+        
+        # 門檻：成交張數 >= 5000 張且資料充足
+        if dp is not None and len(dp) > 65 and dp.iloc[-1]['Trading_Volume'] >= 5000000:
+            score, tags, td, turn = calculate_master_score(sid, dp)
+            
+            # 60 分為及格門檻
+            if score >= 60:
+                res_list.append({
+                    "股票": f"{sid} {sname}", "綜合得分": score, "得分細節": " | ".join(tags),
+                    "收盤價": td['close'], "週轉率%": round(turn, 2), "今日張數": int(td['Trading_Volume']/1000)
+                })
+                print(f"\n🎯 達標: {sid} {sname} (總分: {score})")
 
-with tab2:
-    st.markdown('<p class="input-label" style="margin-top:20px;">📋 貼上自選股清單 (支援 Excel 複製貼上)</p>', unsafe_allow_html=True)
-    batch_input = st.text_area("batch_input", height=150, placeholder="例如：\n6530 創威\n4967 十銓", label_visibility="collapsed")
-    if st.button("🚀 啟動批量掃描"):
-        raw_ids = list(dict.fromkeys([line.strip().split()[0] for line in batch_input.strip().split('\n') if line.strip() and line.strip().split()[0].isalnum()]))
-        if raw_ids:
-            prog = st.progress(0); st_t = st.empty(); sum_d = []
-            for i, sid in enumerate(raw_ids):
-                prog.progress(int((i/len(raw_ids))*100)); st_t.text(f"分析中: {sid}...")
-                status, s_sc, s_res = analyze_single_stock(sid)
-                if status == "success": 
-                    sum_d.append({
-                        "代號": sid, "名稱": stock_mapping.get(sid, ""), "總分": s_sc, 
-                        "評級": s_res['summary']['評級'], "外資": s_res['summary']['外資狀態'], 
-                        "投信": s_res['summary']['投信狀態'], "KD狀態": s_res['summary']['KD狀態']
-                    })
-                time.sleep(0.2)
-            prog.progress(100); st_t.text("✅ 掃描完成！")
-            if sum_d: st.dataframe(pd.DataFrame(sum_d).sort_values(by="總分", ascending=False), use_container_width=True, hide_index=True)
+    if res_list:
+        df_f = pd.DataFrame(res_list).sort_values('綜合得分', ascending=False)
+        p = os.path.join(DESKTOP, f"溫和量能評級報告_{TARGET_DATE}.xlsx")
+        df_f.to_excel(p, index=False)
+        print(f"\n\n✅ 任務完成！已產出 60分以上精選名單。報告已存至桌面：{p}")
+    else:
+        print("\n\n😩 掃描完成，今日暫無符合 60 分以上標的。")
 
-st.markdown("<br><hr>", unsafe_allow_html=True)
-st.markdown('<div style="font-size: 12px; color: #777; text-align: center;">⚠️ 免責聲明：數據由 FinMind 提供。本工具僅為模擬用途，不構成投資建議。</div>', unsafe_allow_html=True)
+if __name__ == "__main__":
+    main()

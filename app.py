@@ -197,12 +197,11 @@ def analyze_single_stock(stock_id):
     else: mas, mac, mam = 0, "status-fail", "均線蓋頭或全數下彎"
     score += mas; tech_results.append(("均線綜合型態", f"站穩:{sup_count}線 / 翻揚:{up_count}線", f"+{mas}分", mac, mam))
     
-    # 🎯 4. 量能變化 (20分) - 修正邏輯區間斷層
+    # 4. 量能變化 (20分)
     v_avg5 = today['5VMA']
     if is_excessive_vol or v0 > 2 * v_avg5:
         vs, vc, vm = 0, "status-fail", "異常爆量 (大於均量2倍或前三日總和)"
     elif v0 > v1 and v_avg5 < v0 <= 2 * v_avg5:
-        # 修復斷層：只要大於均量且在 2 倍以內，都屬於健康放量
         vs, vc, vm = 20, "status-pass", "健康放量 (均量1~2倍內且量增)"
     elif 0.5 * v_avg5 <= v0 <= 2 * v_avg5:
         vs, vc, vm = 10, "status-mid", "常態量能 (維持均量附近)"
@@ -224,9 +223,9 @@ def analyze_single_stock(stock_id):
     summary['外資狀態'] = "買超" if fi_s >= 10 else "賣超"
     summary['投信狀態'] = "加持" if it_s >= 3 else "觀望"
 
-    # 評級判定
+    # 🎯 評級判定門檻更新 75 / 66 / 65
     if score >= 75: summary['評級'] = "🟢 值得買入"
-    elif score >= 70: summary['評級'] = "🟡 列入觀察"
+    elif score >= 66: summary['評級'] = "🟡 列入觀察"
     else: summary['評級'] = "🔴 暫不參考"
     
     return "success", score, {"tech": tech_results, "chip": chip_results, "summary": summary}
@@ -263,13 +262,15 @@ with tab1:
 
                 col_res_sc, col_res_det = st.columns([1, 2])
                 with col_res_sc:
-                    color = "#2DCC70" if score >= 75 else "#F1C40F" if score >= 70 else "#E74C3C"
+                    # 🎯 儀表板顏色同步更新 75 / 66 / 65
+                    color = "#2DCC70" if score >= 75 else "#F1C40F" if score >= 66 else "#E74C3C"
                     st.markdown(f'<div class="score-circle" style="border-color:{color}"><div class="score-text">{score}</div></div>', unsafe_allow_html=True)
                     st.markdown(f"<p style='text-align:center; color:{color}; font-weight:bold; margin-top:10px;'>綜合診斷總分 (滿分100)</p>", unsafe_allow_html=True)
                 with col_res_det:
                     st.markdown(f"## {display_name} 診斷報告")
+                    # 🎯 文字提示同步更新
                     if score >= 75: st.success(f"🎯 **值得買入**：{results['summary']['KD狀態']}")
-                    elif score >= 70: st.warning("⚠️ **列入觀察**：分數已達標")
+                    elif score >= 66: st.warning("⚠️ **列入觀察**：分數已達標")
                     else: st.error("❄️ **暫不參考**：綜合評分未達標。")
                     
                     if "🔥 高檔鈍化" in results['summary']['KD狀態']:
@@ -281,6 +282,7 @@ with tab1:
                 st.markdown("### 🔍 技術面得分細節")
                 for t, d, stg, cls, r in results['tech']: st.markdown(f'<div class="check-item"><div style="flex: 1;"><div class="check-title">{t} ({d})</div><div class="check-reason">{r}</div></div><div class="{cls}">{stg}</div></div>', unsafe_allow_html=True)
 
+                # 🎯 底部說明表文字同步更新
                 st.markdown("""
                 <div class="weight-box">
                     <h3 style="color:#D4AF37; margin-top:0;">📊 買入評級 - 得分細節說明 (滿分100)</h3>
@@ -293,7 +295,7 @@ with tab1:
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>MACD/季線 (15分)</b></td><td>MACD 翻紅(10) + 價格站上季線(5)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>週轉率 (5分)</b></td><td>7~10%(5) | 2~6%、11~15%(3) | >20%或<1%(0)</td></tr>
                     </table>
-                    <p style="margin-top:15px; font-weight:bold; color:#D4AF37;">🟢 75+ 值得買入 | 🟡 70+ 列入觀察 | 🔴 69 以下 暫不參考</p>
+                    <p style="margin-top:15px; font-weight:bold; color:#D4AF37;">🟢 75+ 值得買入 | 🟡 66+ 列入觀察 | 🔴 65 以下 暫不參考</p>
                 </div>
                 """, unsafe_allow_html=True)
 

@@ -164,7 +164,7 @@ def analyze_single_stock(stock_id):
     is_today_black = today['Close'] < today['Open']
     is_today_vol_up = v0 > v1
     is_today_dump = is_today_black and is_today_vol_up
-    is_excessive_vol = v0 > (v1 + v2 + v3)
+    is_excessive_vol = v0 > (v1 + v2 + v3)  # 保留供跌停防禦使用
 
     is_yest_black = yest['Close'] < yest['Open']
     is_yest_vol_up = v1 > v2
@@ -205,22 +205,14 @@ def analyze_single_stock(stock_id):
     else: mas, mac, mam = 0, "status-fail", "均線蓋頭或全數下彎"
     score += mas; tech_results.append(("均線綜合型態", f"站穩:{sup_count}線 / 翻揚:{up_count}線", f"+{mas}分", mac, mam))
     
-    # 🎯 4. 量能變化 (20分) - 全新直覺動能邏輯
-    v_avg5 = today['5VMA']
-    
-    # 優先防禦：爆量與退潮直接沒收分數
-    if is_excessive_vol or v0 > 2 * v_avg5:
-        vs, vc, vm = 0, "status-fail", "異常爆量 (大於均量2倍或前三日總和)"
-    elif v0 < 0.5 * v_avg5:
-        vs, vc, vm = 0, "status-fail", "量能退潮 (低於均量一半)"
-    # 常態區間內的動能判斷
-    elif v0 > v1 and v1 > v2:
+    # 🎯 4. 量能變化 (20分) - 純直覺動能邏輯 (移除異常爆量與退潮防禦)
+    if v0 > v1 and v1 > v2:
         vs, vc, vm = 20, "status-pass", "成交量續增 (連兩日遞增)"
     elif v0 > v1:
         vs, vc, vm = 10, "status-mid", "成交量大於昨日"
     else:
         # v0 <= v1
-        vs, vc, vm = 5, "status-mid", "成交量持平或量縮 (換手洗盤)"
+        vs, vc, vm = 5, "status-mid", "成交量持平或量縮"
 
     score += vs; tech_results.append(("量能健康度", f"今日量: {int(v0/1000):,}張", f"+{vs}分", vc, vm))
     summary['量能狀態'] = vm
@@ -299,7 +291,7 @@ with tab1:
                     <h3 style="color:#D4AF37; margin-top:0;">📊 買入評級 - 得分細節說明 (滿分100)</h3>
                     <table style="width:100%; color:#BBB; font-size:14px;">
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>KD 位階 (25分)</b></td><td>30~45(25) | 46~60(20) | 高檔鈍化觀望(10) | 高檔爆量無籌碼跌停(0)</td></tr>
-                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>量能健康度 (20分)</b></td><td>成交量續增(20) | 大於昨日(10) | 持平或量縮(5) | 異常或退潮(0)</td></tr>
+                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>量能健康度 (20分)</b></td><td>成交量續增(20) | 大於昨日(10) | 持平或量縮(5)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>外資核心 (15分)</b></td><td>連續買超(15) | 五日持股增加(10) | 持平(5) | 遞減(3)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>投信加分 (5分)</b></td><td>連續買超(5) | 五日持股增加(3) | 其餘不加分(0)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>均線型態 (15分)</b></td><td>三支撐+三翻揚(15) | 雙支撐+雙翻揚(10) | 單支撐+單翻揚(5)</td></tr>

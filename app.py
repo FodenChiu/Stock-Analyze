@@ -111,7 +111,6 @@ def analyze_single_stock(stock_id):
     turnover = (today['Volume'] / total_shares) * 100 if total_shares > 0 else 0
     score = 0; tech_results = []; chip_results = []; summary = {}
     
-    # 🎯 提前計算法人籌碼
     fi_s = 0
     if not df_fi.empty and len(df_fi) >= 5:
         fi_sh = df_fi['ForeignInvestmentShares'].tail(5).tolist()
@@ -225,11 +224,11 @@ def analyze_single_stock(stock_id):
 
     # 6. 法人籌碼
     score += chip_score_total
-    chip_results.append(("法人籌碼 (外資15 + 投信5)", f"外資:{fi_s} / 投信:{it_s}", f"+{chip_score_total}分", "status-pass" if chip_score_total>=15 else "status-mid", f"外資{'買超' if fi_s>=10 else '普通'}，投信{'加持' if it_s>0 else '觀望'}"))
+    chip_results.append(("法人籌碼", f"外資:{fi_s} / 投信:{it_s}", f"+{chip_score_total}分", "status-pass" if chip_score_total>=15 else "status-mid", f"外資{'買超' if fi_s>=10 else '普通'}，投信{'加持' if it_s>0 else '觀望'}"))
     summary['外資狀態'] = "買超" if fi_s >= 10 else "賣超"
     summary['投信狀態'] = "加持" if it_s >= 3 else "觀望"
 
-    # 🎯 評級判定門檻更新 80 / 70 / 69
+    # 評級判定
     if score >= 80: summary['評級'] = "🟢 值得買入"
     elif score >= 70: summary['評級'] = "🟡 列入觀察"
     else: summary['評級'] = "🔴 暫不參考"
@@ -268,13 +267,11 @@ with tab1:
 
                 col_res_sc, col_res_det = st.columns([1, 2])
                 with col_res_sc:
-                    # 🎯 儀表板顏色同步更新 80 / 70 / 69
                     color = "#2DCC70" if score >= 80 else "#F1C40F" if score >= 70 else "#E74C3C"
                     st.markdown(f'<div class="score-circle" style="border-color:{color}"><div class="score-text">{score}</div></div>', unsafe_allow_html=True)
                     st.markdown(f"<p style='text-align:center; color:{color}; font-weight:bold; margin-top:10px;'>綜合診斷總分 (滿分100)</p>", unsafe_allow_html=True)
                 with col_res_det:
                     st.markdown(f"## {display_name} 診斷報告")
-                    # 🎯 文字提示同步更新
                     if score >= 80: st.success(f"🎯 **值得買入**：{results['summary']['KD狀態']}")
                     elif score >= 70: st.warning("⚠️ **列入觀察**：分數已達標")
                     else: st.error("❄️ **暫不參考**：綜合評分未達標。")
@@ -282,13 +279,12 @@ with tab1:
                     if "🔥 高檔鈍化" in results['summary']['KD狀態']:
                         st.info("💡 **高檔鈍化提醒**：指標極強，但需觀望隔日開盤量能是否遞增，切勿追高。")
 
-                st.markdown("### 🧬 法人籌碼面 (外資15 + 投信5)")
+                st.markdown("### 🧬 法人籌碼面")
                 for t, d, stg, cls, r in results['chip']: st.markdown(f'<div class="check-item"><div style="flex: 1;"><div class="check-title">{t} ({d})</div><div class="check-reason">{r}</div></div><div class="{cls}">{stg}</div></div>', unsafe_allow_html=True)
 
                 st.markdown("### 🔍 技術面得分細節")
                 for t, d, stg, cls, r in results['tech']: st.markdown(f'<div class="check-item"><div style="flex: 1;"><div class="check-title">{t} ({d})</div><div class="check-reason">{r}</div></div><div class="{cls}">{stg}</div></div>', unsafe_allow_html=True)
 
-                # 🎯 底部說明表文字同步更新
                 st.markdown("""
                 <div class="weight-box">
                     <h3 style="color:#D4AF37; margin-top:0;">📊 買入評級 - 得分細節說明 (滿分100)</h3>

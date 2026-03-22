@@ -111,6 +111,7 @@ def analyze_single_stock(stock_id):
     turnover = (today['Volume'] / total_shares) * 100 if total_shares > 0 else 0
     score = 0; tech_results = []; chip_results = []; summary = {}
     
+    # 🎯 提前計算法人籌碼
     fi_s = 0
     if not df_fi.empty and len(df_fi) >= 5:
         fi_sh = df_fi['ForeignInvestmentShares'].tail(5).tolist()
@@ -164,7 +165,7 @@ def analyze_single_stock(stock_id):
     is_today_black = today['Close'] < today['Open']
     is_today_vol_up = v0 > v1
     is_today_dump = is_today_black and is_today_vol_up
-    is_excessive_vol = v0 > (v1 + v2 + v3)  # 保留供跌停防禦使用
+    is_excessive_vol = v0 > (v1 + v2 + v3)
 
     is_yest_black = yest['Close'] < yest['Open']
     is_yest_vol_up = v1 > v2
@@ -205,13 +206,12 @@ def analyze_single_stock(stock_id):
     else: mas, mac, mam = 0, "status-fail", "均線蓋頭或全數下彎"
     score += mas; tech_results.append(("均線綜合型態", f"站穩:{sup_count}線 / 翻揚:{up_count}線", f"+{mas}分", mac, mam))
     
-    # 🎯 4. 量能變化 (20分) - 純直覺動能邏輯 (移除異常爆量與退潮防禦)
+    # 4. 量能變化 (20分)
     if v0 > v1 and v1 > v2:
         vs, vc, vm = 20, "status-pass", "成交量續增 (連兩日遞增)"
     elif v0 > v1:
         vs, vc, vm = 10, "status-mid", "成交量大於昨日"
     else:
-        # v0 <= v1
         vs, vc, vm = 5, "status-mid", "成交量持平或量縮"
 
     score += vs; tech_results.append(("量能健康度", f"今日量: {int(v0/1000):,}張", f"+{vs}分", vc, vm))
@@ -229,9 +229,9 @@ def analyze_single_stock(stock_id):
     summary['外資狀態'] = "買超" if fi_s >= 10 else "賣超"
     summary['投信狀態'] = "加持" if it_s >= 3 else "觀望"
 
-    # 評級判定
-    if score >= 75: summary['評級'] = "🟢 值得買入"
-    elif score >= 66: summary['評級'] = "🟡 列入觀察"
+    # 🎯 評級判定門檻更新 80 / 70 / 69
+    if score >= 80: summary['評級'] = "🟢 值得買入"
+    elif score >= 70: summary['評級'] = "🟡 列入觀察"
     else: summary['評級'] = "🔴 暫不參考"
     
     return "success", score, {"tech": tech_results, "chip": chip_results, "summary": summary}
@@ -268,13 +268,15 @@ with tab1:
 
                 col_res_sc, col_res_det = st.columns([1, 2])
                 with col_res_sc:
-                    color = "#2DCC70" if score >= 75 else "#F1C40F" if score >= 66 else "#E74C3C"
+                    # 🎯 儀表板顏色同步更新 80 / 70 / 69
+                    color = "#2DCC70" if score >= 80 else "#F1C40F" if score >= 70 else "#E74C3C"
                     st.markdown(f'<div class="score-circle" style="border-color:{color}"><div class="score-text">{score}</div></div>', unsafe_allow_html=True)
                     st.markdown(f"<p style='text-align:center; color:{color}; font-weight:bold; margin-top:10px;'>綜合診斷總分 (滿分100)</p>", unsafe_allow_html=True)
                 with col_res_det:
                     st.markdown(f"## {display_name} 診斷報告")
-                    if score >= 75: st.success(f"🎯 **值得買入**：{results['summary']['KD狀態']}")
-                    elif score >= 66: st.warning("⚠️ **列入觀察**：分數已達標")
+                    # 🎯 文字提示同步更新
+                    if score >= 80: st.success(f"🎯 **值得買入**：{results['summary']['KD狀態']}")
+                    elif score >= 70: st.warning("⚠️ **列入觀察**：分數已達標")
                     else: st.error("❄️ **暫不參考**：綜合評分未達標。")
                     
                     if "🔥 高檔鈍化" in results['summary']['KD狀態']:
@@ -286,6 +288,7 @@ with tab1:
                 st.markdown("### 🔍 技術面得分細節")
                 for t, d, stg, cls, r in results['tech']: st.markdown(f'<div class="check-item"><div style="flex: 1;"><div class="check-title">{t} ({d})</div><div class="check-reason">{r}</div></div><div class="{cls}">{stg}</div></div>', unsafe_allow_html=True)
 
+                # 🎯 底部說明表文字同步更新
                 st.markdown("""
                 <div class="weight-box">
                     <h3 style="color:#D4AF37; margin-top:0;">📊 買入評級 - 得分細節說明 (滿分100)</h3>
@@ -298,7 +301,7 @@ with tab1:
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>MACD/季線 (15分)</b></td><td>MACD 翻紅(10) + 價格站上季線(5)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>週轉率 (5分)</b></td><td>6~10%(5) | 3~5%、11~15%(3) | 16~20%(1) | >20%或<3%(0)</td></tr>
                     </table>
-                    <p style="margin-top:15px; font-weight:bold; color:#D4AF37;">🟢 75+ 值得買入 | 🟡 66+ 列入觀察 | 🔴 65 以下 暫不參考</p>
+                    <p style="margin-top:15px; font-weight:bold; color:#D4AF37;">🟢 80+ 值得買入 | 🟡 70+ 列入觀察 | 🔴 69 以下 暫不參考</p>
                 </div>
                 """, unsafe_allow_html=True)
 

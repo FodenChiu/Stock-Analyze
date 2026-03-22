@@ -162,8 +162,8 @@ def analyze_single_stock(stock_id):
         has_3_lim_up = False; has_lim_dn = False
 
     is_today_black = today['Close'] < today['Open']
-    is_today_red = today['Close'] > today['Open']  # 🎯 新增：判斷紅棒
-    is_today_vol_up = v0 > v1                      # 🎯 今日放量
+    is_today_red = today['Close'] > today['Open']
+    is_today_vol_up = v0 > v1
     is_today_dump = is_today_black and is_today_vol_up
     is_excessive_vol = v0 > (v1 + v2 + v3)
 
@@ -171,7 +171,6 @@ def analyze_single_stock(stock_id):
     is_yest_vol_up = v1 > v2
     is_yest_dump = is_yest_black and is_yest_vol_up
 
-    # 🎯 專屬提醒觸發器：KD >= 80 + 量增 + 紅棒
     summary['show_high_k_warning'] = (k_val >= 80) and is_today_vol_up and is_today_red
 
     if has_3_lim_up:
@@ -239,6 +238,65 @@ def analyze_single_stock(stock_id):
     
     return "success", score, {"tech": tech_results, "chip": chip_results, "summary": summary}
 
+# --- 📝 報表生成器 (提供給 PDF 列印使用) ---
+def generate_html_report(df_results):
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    rows_html = ""
+    for _, row in df_results.iterrows():
+        sc = row['總分']
+        color = "#2DCC70" if sc >= 80 else "#F1C40F" if sc >= 70 else "#E74C3C"
+        rows_html += f"""
+        <tr>
+            <td style="font-weight:bold; font-size:15px;">{row['代號']} {row['名稱']}</td>
+            <td style="color:{color}; font-weight:bold; font-size:18px;">{sc}</td>
+            <td style="font-weight:bold;">{row['評級']}</td>
+            <td>{row['量能']}</td>
+            <td>{row['外資']}</td>
+            <td>{row['投信']}</td>
+            <td style="text-align:left; color:#555;">{row['KD狀態']}</td>
+        </tr>
+        """
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>台股短線掃描報告</title>
+        <style>
+            body {{ font-family: 'Microsoft JhengHei', 'PingFang TC', sans-serif; background-color: #FFFFFF; color: #333333; padding: 20px; }}
+            h1 {{ color: #B8860B; text-align: center; border-bottom: 2px solid #B8860B; padding-bottom: 10px; margin-bottom: 5px; }}
+            .meta-info {{ text-align: right; color: #777; font-size: 12px; margin-bottom: 20px; }}
+            table {{ width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }}
+            th, td {{ border: 1px solid #DDDDDD; padding: 12px 8px; text-align: center; }}
+            th {{ background-color: #F8F4E6; color: #B8860B; font-weight: bold; font-size: 15px; }}
+            tr:nth-child(even) {{ background-color: #FDFDFD; }}
+            @media print {{ body {{ padding: 0; }} }}
+        </style>
+    </head>
+    <body>
+        <h1>⚡ 台股短線買入評級 - 批量掃描報告</h1>
+        <div class="meta-info">報告生成時間：{now_str}</div>
+        <table>
+            <tr>
+                <th width="15%">股票標的</th>
+                <th width="8%">總分</th>
+                <th width="12%">綜合評級</th>
+                <th width="15%">量能健康度</th>
+                <th width="10%">外資狀態</th>
+                <th width="10%">投信狀態</th>
+                <th width="30%">KD 位階與防禦狀態</th>
+            </tr>
+            {rows_html}
+        </table>
+        <p style="text-align:center; font-size:11px; color:#999; margin-top:30px;">
+            ⚠️ 系統自動生成之技術籌碼分析報告，請使用 Ctrl+P (或 Cmd+P) 另存為 PDF。本資料僅供策略回測與觀察，不構成任何買賣投資建議。
+        </p>
+    </body>
+    </html>
+    """
+    return html
+
 # --- 🎯 雙頁籤介面設計 ---
 tab1, tab2 = st.tabs(["🎯 單檔深度診斷", "📊 批量多檔掃描"])
 
@@ -280,7 +338,6 @@ with tab1:
                     elif score >= 70: st.warning("⚠️ **列入觀察**：分數已達標")
                     else: st.error("❄️ **暫不參考**：綜合評分未達標。")
                     
-                    # 🎯 只在 KD>=80 + 收紅棒 + 量增 時才觸發提醒
                     if results['summary'].get('show_high_k_warning', False):
                         st.info("💡 **高檔鈍化提醒**：指標極強，但需觀望隔日開盤量能是否遞增，切勿追高。")
 
@@ -324,7 +381,19 @@ with tab2:
                     })
                 time.sleep(0.2)
             prog.progress(100); st_t.text("✅ 掃描完成！")
-            if sum_d: st.dataframe(pd.DataFrame(sum_d).sort_values(by="總分", ascending=False), use_container_width=True, hide_index=True)
+            
+            if sum_d: 
+                df_res = pd.DataFrame(sum_d).sort_values(by="總分", ascending=False)
+                st.dataframe(df_res, use_container_width=True, hide_index=True)
+                
+                # 產生並提供 HTML 報表下載
+                html_data = generate_html_report(df_res)
+                st.download_button(
+                    label="📄 匯出精美掃描報告 (點開後按 Ctrl+P 存成 PDF)",
+                    data=html_data,
+                    file_name=f"Stock_Report_{datetime.datetime.now().strftime('%Y%m%d_%H%M')}.html",
+                    mime="text/html"
+                )
 
 st.markdown("<br><hr>", unsafe_allow_html=True)
 st.markdown('<div style="font-size: 12px; color: #777; text-align: center;">⚠️ 免責聲明：數據由 FinMind 提供。本工具僅為模擬用途，不構成投資建議。</div>', unsafe_allow_html=True)

@@ -117,15 +117,15 @@ def analyze_single_stock(stock_id):
     
     # 🎯 2. KD 位階 (25分) 
     k_val = today['K']
-    # 取出近五日量能
-    v0, v1, v2, v3, v4 = df['Volume'].iloc[-1], df['Volume'].iloc[-2], df['Volume'].iloc[-3], df['Volume'].iloc[-4], df['Volume'].iloc[-5]
+    # 退回近三天量能取值
+    v0, v1, v2, v3 = df['Volume'].iloc[-1], df['Volume'].iloc[-2], df['Volume'].iloc[-3], df['Volume'].iloc[-4]
     
     is_today_black = today['Close'] < today['Open']
     is_today_vol_up = v0 > v1
     is_today_dump = is_today_black and is_today_vol_up
     
-    # 爆量判定改為：今日量大於前四日總和
-    is_excessive_vol = v0 > (v1 + v2 + v3 + v4)
+    # 爆量判定退回：今日量大於前三天總和
+    is_excessive_vol = v0 > (v1 + v2 + v3)
 
     is_yest_black = yest['Close'] < yest['Open']
     is_yest_vol_up = v1 > v2
@@ -159,16 +159,16 @@ def analyze_single_stock(stock_id):
     else: mas, mac, mam = 0, "status-fail", "均線蓋頭或全數下彎"
     score += mas; tech_results.append(("均線綜合型態", f"站穩:{sup_count}線 / 翻揚:{up_count}線", f"+{mas}分", mac, mam))
     
-    # 🎯 4. 近五天量能變化 (20分)
+    # 🎯 4. 近三天量能變化 (20分)
     if is_excessive_vol: 
-        vs, vc, vm = 0, "status-fail", "大於前四天總和(過熱)"
-    elif v0 > v1 and v1 > v2 and v2 > v3 and v3 > v4:
-        if v0 >= 1.5 * v1: vs, vc, vm = 15, "status-mid", "連五日量增(逐步爆量)"
-        else: vs, vc, vm = 20, "status-pass", "連五日穩健量增"
+        vs, vc, vm = 0, "status-fail", "大於前三天總和(過熱)"
+    elif v0 > v1 and v1 > v2:
+        if v0 >= 1.5 * v1: vs, vc, vm = 15, "status-mid", "連續增加(逐步爆量)"
+        else: vs, vc, vm = 20, "status-pass", "穩健逐步量增"
     else: 
-        vs, vc, vm = 0, "status-fail", "未達連五日遞增"
+        vs, vc, vm = 0, "status-fail", "量能未連續增加"
         
-    score += vs; tech_results.append(("近五天量能", f"今日 {int(v0/1000):,}張", f"+{vs}分", vc, vm))
+    score += vs; tech_results.append(("近三天量能", f"今日 {int(v0/1000):,}張", f"+{vs}分", vc, vm))
     summary['量能狀態'] = vm
 
     # 5. 其他技術面 (15分)
@@ -258,7 +258,7 @@ with tab1:
                     <h3 style="color:#D4AF37; margin-top:0;">📊 買入評級 - 得分細節說明 (滿分100)</h3>
                     <table style="width:100%; color:#BBB; font-size:14px;">
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>KD 位階 (25分)</b></td><td>30~45(25) | 46~60(20) | >75鈍化不爆量(25) | 近兩日放量黑(0)</td></tr>
-                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>近五天量能 (20分)</b></td><td>連五日遞增(20) | 逐步爆量(15) | 大於前四天總和(0)</td></tr>
+                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>近三天量能 (20分)</b></td><td>連三日遞增(20) | 逐步爆量(15) | 大於前三天總和(0)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>外資核心 (15分)</b></td><td>連續買超(15) | 五日持股增加(10) | 持平(5) | 遞減(3)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>投信加分 (5分)</b></td><td>連續買超(5) | 五日持股增加(3) | 其餘不加分(0)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>均線型態 (15分)</b></td><td>三支撐+三翻揚(15) | 雙支撐+雙翻揚(10) | 單支撐+單翻揚(5)</td></tr>

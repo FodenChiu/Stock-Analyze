@@ -115,24 +115,32 @@ def analyze_single_stock(stock_id):
     ts = 5 if 7.0 <= turnover <= 10.0 else (3 if (2.0 <= turnover < 7.0 or 10.0 < turnover <= 15.0) else (1 if (1.0 <= turnover < 2.0 or 15.0 < turnover <= 20.0) else 0))
     score += ts; tech_results.append(("週轉率判定", f"實測 {turnover:.2f}%" if total_shares > 0 else "無法估算", f"+{ts}分", "status-pass" if ts==5 else "status-mid" if ts>0 else "status-fail", ""))
     
-    # 2. KD 位階 (25分) 
+    # 🎯 2. KD 位階 (25分) 包含高檔鈍化降分機制
     k_val = today['K']
     v0, v1, v2, v3 = df['Volume'].iloc[-1], df['Volume'].iloc[-2], df['Volume'].iloc[-3], df['Volume'].iloc[-4]
     
+    c0, c1, c2, c3 = df['Close'].iloc[-1], df['Close'].iloc[-2], df['Close'].iloc[-3], df['Close'].iloc[-4]
+    ret0 = abs(c0 - c1) / c1 if c1 > 0 else 0
+    ret1 = abs(c1 - c2) / c2 if c2 > 0 else 0
+    ret2 = abs(c2 - c3) / c3 if c3 > 0 else 0
+    has_limit_hit = (ret0 >= 0.095) or (ret1 >= 0.095) or (ret2 >= 0.095)
+
     is_today_black = today['Close'] < today['Open']
     is_today_vol_up = v0 > v1
     is_today_dump = is_today_black and is_today_vol_up
-    is_excessive_vol = v0 > (v1 + v2 + v3)
 
     is_yest_black = yest['Close'] < yest['Open']
     is_yest_vol_up = v1 > v2
     is_yest_dump = is_yest_black and is_yest_vol_up
 
-    if k_val > 60 and (is_today_dump or is_yest_dump):
+    if has_limit_hit:
+        ks, kc, km = 0, "status-fail", "⚠️ 近三日曾漲跌停 (排除處置與過度投機)"
+    elif k_val > 60 and (is_today_dump or is_yest_dump):
         ks, kc, km = 0, "status-fail", "⚠️ 近兩日放量收黑 (大戶出貨疑慮)"
     elif k_val > 75: 
-        if today['Close'] > today['5MA'] and not is_excessive_vol: 
-            ks, kc, km = 25, "status-pass", "🔥 高檔強勢鈍化"
+        if today['Close'] > today['5MA']: 
+            # 🎯 高檔鈍化降分，改為 10 分，提醒觀望隔日量
+            ks, kc, km = 10, "status-mid", "🔥 高檔鈍化 (觀望隔日量能)"
         else: 
             ks, kc, km = 0, "status-fail", "過熱且量價背離"
     elif 30 <= k_val <= 45: ks, kc, km = 25, "status-pass", "KD 30~45 起漲黃金區"
@@ -156,17 +164,16 @@ def analyze_single_stock(stock_id):
     else: mas, mac, mam = 0, "status-fail", "均線蓋頭或全數下彎"
     score += mas; tech_results.append(("均線綜合型態", f"站穩:{sup_count}線 / 翻揚:{up_count}線", f"+{mas}分", mac, mam))
     
-    # 🎯 4. 溫和放量判定 (20分) - 結合均量概念
+    # 4. 量能變化 (20分)
     v_avg5 = today['5VMA']
-    
     if v0 > 2 * v_avg5 or v0 > (v1 + v2 + v3):
-        vs, vc, vm = 0, "status-fail", "異常爆量 (大於均量2倍或前三日總和，有失控疑慮)"
+        vs, vc, vm = 0, "status-fail", "異常爆量 (大於均量2倍或前三日總和)"
     elif v0 > v1 and v_avg5 < v0 <= 1.5 * v_avg5:
-        vs, vc, vm = 20, "status-pass", "溫和放量 (微幅超過5日均量且遞增，最健康換手)"
+        vs, vc, vm = 20, "status-pass", "溫和放量 (微幅超過5日均量且遞增)"
     elif 0.5 * v_avg5 <= v0 <= 1.5 * v_avg5:
-        vs, vc, vm = 10, "status-mid", "常態量能 (維持均量附近，穩健無失控)"
+        vs, vc, vm = 10, "status-mid", "常態量能 (維持均量附近)"
     else:
-        vs, vc, vm = 0, "status-fail", "量能退潮 (低於均量一半，動能不足)"
+        vs, vc, vm = 0, "status-fail", "量能退潮 (低於均量一半)"
 
     score += vs; tech_results.append(("量能健康度", f"今日量: {int(v0/1000):,}張", f"+{vs}分", vc, vm))
     summary['量能狀態'] = vm
@@ -229,9 +236,12 @@ with tab1:
             elif status == "insufficient_data": st.error("⚠️ 該檔股票資料不足，無法進行運算。")
             else:
                 
-                if "⚠️" in results['summary']['KD狀態']:
+                if "漲跌停" in results['summary']['KD狀態']:
+                    st.error(f"🚨 **妖股警報**：{display_name} 近三日內曾觸及『漲跌停』！")
+                    st.info("💡 系統已自動排除波動過劇或有潛在處置風險的妖股，建議觀望。")
+                elif "⚠️" in results['summary']['KD狀態']:
                     st.error(f"🚨 **危險警告**：{display_name} 近兩日內出現了『放量收黑K』！")
-                    st.info("💡 雖然指標或籌碼可能尚未完全轉弱，但高檔出現量增價跌，通常代表大戶正在趁亂出貨或換手失敗，建議先避開。")
+                    st.info("💡 雖然指標或籌碼可能尚未轉弱，但高檔出現量增價跌，通常代表大戶正在趁亂出貨或換手失敗，建議先避開。")
 
                 col_res_sc, col_res_det = st.columns([1, 2])
                 with col_res_sc:
@@ -245,7 +255,7 @@ with tab1:
                     else: st.error("❄️ **暫不參考**：綜合評分未達標。")
                     
                     if "🔥" in results['summary']['KD狀態']:
-                        st.success("💡 **強勢鈍化**：動能極強，守穩 5MA 續強。")
+                        st.info("💡 **高檔鈍化提醒**：指標極強，但需觀望隔日開盤量能是否遞增，切勿追高。")
 
                 st.markdown("### 🧬 法人籌碼面 (外資15 + 投信5)")
                 for t, d, stg, cls, r in results['chip']: st.markdown(f'<div class="check-item"><div style="flex: 1;"><div class="check-title">{t} ({d})</div><div class="check-reason">{r}</div></div><div class="{cls}">{stg}</div></div>', unsafe_allow_html=True)
@@ -257,7 +267,7 @@ with tab1:
                 <div class="weight-box">
                     <h3 style="color:#D4AF37; margin-top:0;">📊 買入評級 - 得分細節說明 (滿分100)</h3>
                     <table style="width:100%; color:#BBB; font-size:14px;">
-                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>KD 位階 (25分)</b></td><td>30~45(25) | 46~60(20) | >75鈍化不爆量(25) | 近兩日放量黑(0)</td></tr>
+                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>KD 位階 (25分)</b></td><td>30~45(25) | 46~60(20) | >75鈍化待確認(10) | 近三日漲跌停或放量黑(0)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>量能健康度 (20分)</b></td><td>溫和放量(20) | 常態量能(10) | 異常爆量或退潮(0)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>外資核心 (15分)</b></td><td>連續買超(15) | 五日持股增加(10) | 持平(5) | 遞減(3)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>投信加分 (5分)</b></td><td>連續買超(5) | 五日持股增加(3) | 其餘不加分(0)</td></tr>

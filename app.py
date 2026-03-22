@@ -111,7 +111,6 @@ def analyze_single_stock(stock_id):
     turnover = (today['Volume'] / total_shares) * 100 if total_shares > 0 else 0
     score = 0; tech_results = []; chip_results = []; summary = {}
     
-    # 🎯 提前計算法人籌碼 (供 KD 跌停防禦邏輯使用)
     fi_s = 0
     if not df_fi.empty and len(df_fi) >= 5:
         fi_sh = df_fi['ForeignInvestmentShares'].tail(5).tolist()
@@ -132,24 +131,21 @@ def analyze_single_stock(stock_id):
         else: it_s = 0 
         
     chip_score_total = fi_s + it_s
-    # 若外資+投信總分低於 10 分，代表法人沒有明顯連續買超護盤
     is_chip_weak = chip_score_total < 10 
 
     # 1. 週轉率 (5分)
     ts = 5 if 7.0 <= turnover <= 10.0 else (3 if (2.0 <= turnover < 7.0 or 10.0 < turnover <= 15.0) else (1 if (1.0 <= turnover < 2.0 or 15.0 < turnover <= 20.0) else 0))
     score += ts; tech_results.append(("週轉率判定", f"實測 {turnover:.2f}%" if total_shares > 0 else "無法估算", f"+{ts}分", "status-pass" if ts==5 else "status-mid" if ts>0 else "status-fail", ""))
     
-    # 🎯 2. KD 位階 (25分) 包含連三漲停與跌停籌碼判定
+    # 2. KD 位階 (25分) 
     k_val = today['K']
     v0, v1, v2, v3 = df['Volume'].iloc[-1], df['Volume'].iloc[-2], df['Volume'].iloc[-3], df['Volume'].iloc[-4]
     
-    # 波動幅計算：近五日是否有連三漲停，或任一日跌停
     c_list = df['Close'].tail(6).tolist()
     if len(c_list) == 6:
         ret = [(c_list[i] - c_list[i-1]) / c_list[i-1] for i in range(1, 6)]
         lim_up = [r >= 0.095 for r in ret]
         lim_dn = [r <= -0.095 for r in ret]
-        # 判斷近五天內有沒有連續三天漲停
         has_3_lim_up = (lim_up[0] and lim_up[1] and lim_up[2]) or \
                        (lim_up[1] and lim_up[2] and lim_up[3]) or \
                        (lim_up[2] and lim_up[3] and lim_up[4])
@@ -166,11 +162,9 @@ def analyze_single_stock(stock_id):
     is_yest_vol_up = v1 > v2
     is_yest_dump = is_yest_black and is_yest_vol_up
 
-    # 優先觸發妖股/漲跌停智能防禦機制
     if has_3_lim_up:
         ks, kc, km = 0, "status-fail", "⚠️ 近五日連三漲停 (處置妖股風險)"
     elif has_lim_dn:
-        # 跌停且「高檔+爆量+籌碼弱」才是真出貨
         if k_val > 60 and is_excessive_vol and is_chip_weak:
             ks, kc, km = 0, "status-fail", "⚠️ 高檔爆量跌停且法人無買盤 (強力出貨)"
         else:
@@ -203,13 +197,14 @@ def analyze_single_stock(stock_id):
     else: mas, mac, mam = 0, "status-fail", "均線蓋頭或全數下彎"
     score += mas; tech_results.append(("均線綜合型態", f"站穩:{sup_count}線 / 翻揚:{up_count}線", f"+{mas}分", mac, mam))
     
-    # 4. 量能變化 (20分)
+    # 🎯 4. 量能變化 (20分) - 修正邏輯區間斷層
     v_avg5 = today['5VMA']
     if is_excessive_vol or v0 > 2 * v_avg5:
         vs, vc, vm = 0, "status-fail", "異常爆量 (大於均量2倍或前三日總和)"
-    elif v0 > v1 and v_avg5 < v0 <= 1.5 * v_avg5:
-        vs, vc, vm = 20, "status-pass", "溫和放量 (微幅超過5日均量且遞增)"
-    elif 0.5 * v_avg5 <= v0 <= 1.5 * v_avg5:
+    elif v0 > v1 and v_avg5 < v0 <= 2 * v_avg5:
+        # 修復斷層：只要大於均量且在 2 倍以內，都屬於健康放量
+        vs, vc, vm = 20, "status-pass", "健康放量 (均量1~2倍內且量增)"
+    elif 0.5 * v_avg5 <= v0 <= 2 * v_avg5:
         vs, vc, vm = 10, "status-mid", "常態量能 (維持均量附近)"
     else:
         vs, vc, vm = 0, "status-fail", "量能退潮 (低於均量一半)"
@@ -223,7 +218,7 @@ def analyze_single_stock(stock_id):
     qs = 5 if len(df) >= 60 and today['Close'] > df.iloc[-60]['Close'] else 0; score += qs
     tech_results.append(("季線趨勢", "現價 > 60日前", f"+{qs}分", "status-pass" if qs else "status-fail", "長線翻多"))
 
-    # 6. 法人籌碼加總 (前面已經算好，這裡加進總分即可)
+    # 6. 法人籌碼
     score += chip_score_total
     chip_results.append(("法人籌碼 (外資15 + 投信5)", f"外資:{fi_s} / 投信:{it_s}", f"+{chip_score_total}分", "status-pass" if chip_score_total>=15 else "status-mid", f"外資{'買超' if fi_s>=10 else '普通'}，投信{'加持' if it_s>0 else '觀望'}"))
     summary['外資狀態'] = "買超" if fi_s >= 10 else "賣超"
@@ -291,7 +286,7 @@ with tab1:
                     <h3 style="color:#D4AF37; margin-top:0;">📊 買入評級 - 得分細節說明 (滿分100)</h3>
                     <table style="width:100%; color:#BBB; font-size:14px;">
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>KD 位階 (25分)</b></td><td>30~45(25) | 46~60(20) | 高檔鈍化觀望(10) | 高檔爆量無籌碼跌停(0)</td></tr>
-                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>量能健康度 (20分)</b></td><td>溫和放量(20) | 常態量能(10) | 異常爆量或退潮(0)</td></tr>
+                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>量能健康度 (20分)</b></td><td>健康放量(20) | 常態量能(10) | 異常爆量或退潮(0)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>外資核心 (15分)</b></td><td>連續買超(15) | 五日持股增加(10) | 持平(5) | 遞減(3)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>投信加分 (5分)</b></td><td>連續買超(5) | 五日持股增加(3) | 其餘不加分(0)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>均線型態 (15分)</b></td><td>三支撐+三翻揚(15) | 雙支撐+雙翻揚(10) | 單支撐+單翻揚(5)</td></tr>

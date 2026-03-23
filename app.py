@@ -91,9 +91,13 @@ def analyze_single_stock(stock_id):
 
     df['5MA'] = df['Close'].rolling(5).mean(); df['10MA'] = df['Close'].rolling(10).mean(); df['20MA'] = df['Close'].rolling(20).mean()
     df['5VMA'] = df['Volume'].rolling(5).mean()
+    
+    # 🎯 補齊完整的 KD 值演算法
     df['9L'], df['9H'] = df['Low'].rolling(9).min(), df['High'].rolling(9).max()
     df['RSV'] = 100 * (df['Close'] - df['9L']) / (df['9H'] - df['9L'] + 1e-9)
     df['K'] = df['RSV'].ewm(com=2, adjust=False).mean()
+    df['D'] = df['K'].ewm(com=2, adjust=False).mean()  # 新增 D 值計算
+    
     df['DIF'] = df['Close'].ewm(span=12, adjust=False).mean() - df['Close'].ewm(span=26, adjust=False).mean()
     df['MACD'] = df['DIF'].ewm(span=9, adjust=False).mean()
     
@@ -111,6 +115,23 @@ def analyze_single_stock(stock_id):
     turnover = (today['Volume'] / total_shares) * 100 if total_shares > 0 else 0
     score = 0; tech_results = []; chip_results = []; summary = {}
     
+    # 🎯 死亡交叉判定函數 (偵測近兩日是否跌破)
+    def check_death_cross(fast, slow):
+        cross_today = (fast.iloc[-2] >= slow.iloc[-2]) and (fast.iloc[-1] < slow.iloc[-1])
+        cross_yest = (fast.iloc[-3] >= slow.iloc[-3]) and (fast.iloc[-2] < slow.iloc[-2])
+        return cross_today or cross_yest
+
+    kd_death = check_death_cross(df['K'], df['D'])
+    macd_death = check_death_cross(df['DIF'], df['MACD'])
+    ma_death = check_death_cross(df['5MA'], df['10MA']) or check_death_cross(df['5MA'], df['20MA'])
+    
+    death_labels = []
+    if kd_death: death_labels.append("KD")
+    if macd_death: death_labels.append("MACD")
+    if ma_death: death_labels.append("均線(5MA破線)")
+    
+    summary['death_cross_msg'] = "、".join(death_labels) + " 死亡交叉" if death_labels else ""
+
     fi_s = 0
     if not df_fi.empty and len(df_fi) >= 5:
         fi_sh = df_fi['ForeignInvestmentShares'].tail(5).tolist()
@@ -140,7 +161,7 @@ def analyze_single_stock(stock_id):
         ts = 3; tc = "status-mid"
     elif 16.0 <= turnover <= 20.0:
         ts = 1; tc = "status-mid"
-    else:  # >20% 或 <3%
+    else: 
         ts = 0; tc = "status-fail"
         
     score += ts; tech_results.append(("週轉率判定", f"實測 {turnover:.2f}%" if total_shares > 0 else "無法估算", f"+{ts}分", tc, ""))
@@ -173,6 +194,7 @@ def analyze_single_stock(stock_id):
 
     summary['show_high_k_warning'] = (k_val >= 80) and is_today_vol_up and is_today_red
 
+    # 🎯 優先防禦判斷
     if has_3_lim_up:
         ks, kc, km = 0, "status-fail", "⚠️ 近五日連三漲停 (處置妖股風險)"
     elif has_lim_dn:
@@ -180,6 +202,8 @@ def analyze_single_stock(stock_id):
             ks, kc, km = 0, "status-fail", "⚠️ 高檔爆量跌停且法人無買盤 (強力出貨)"
         else:
             ks, kc, km = 10, "status-mid", "⚠️ 跌停回檔 (但籌碼或位階尚有支撐，觀望)"
+    elif kd_death:  # 🎯 新增 KD 死亡交叉強制歸零
+        ks, kc, km = 0, "status-fail", "⚠️ KD 死亡交叉 (趨勢轉弱訊號)"
     elif k_val > 60 and (is_today_dump or is_yest_dump):
         ks, kc, km = 0, "status-fail", "⚠️ 近兩日放量收黑 (大戶出貨疑慮)"
     elif k_val > 75: 
@@ -193,7 +217,7 @@ def analyze_single_stock(stock_id):
     elif k_val < 30: ks, kc, km = 0, "status-fail", "動能不足"
     else: ks, kc, km = 0, "status-fail", "位階不明"
     
-    score += ks; tech_results.append(("KD 位階", f"K值: {k_val:.1f}", f"+{ks}分", kc, km))
+    score += ks; tech_results.append(("KD 位階", f"K值: {k_val:.1f} / D值: {today['D']:.1f}", f"+{ks}分", kc, km))
     summary['KD狀態'] = km
     
     # 3. 均線綜合型態 (15分)
@@ -202,7 +226,9 @@ def analyze_single_stock(stock_id):
     sup_count = sum([c_val > m5, c_val > m10, c_val > m20])
     up_count = sum([m5 > y_m5, m10 > y_m10, m20 > y_m20])
 
-    if sup_count == 3 and up_count == 3: mas, mac, mam = 15, "status-pass", "站穩三線且全數翻揚"
+    if ma_death: # 🎯 新增均線死亡交叉強制歸零
+        mas, mac, mam = 0, "status-fail", "⚠️ 短均線死亡交叉 (跌破防守線)"
+    elif sup_count == 3 and up_count == 3: mas, mac, mam = 15, "status-pass", "站穩三線且全數翻揚"
     elif sup_count >= 2 and up_count >= 2: mas, mac, mam = 10, "status-mid", "站穩雙線且雙線翻揚"
     elif sup_count >= 1 and up_count >= 1: mas, mac, mam = 5, "status-fail", "站穩單線且單線翻揚"
     else: mas, mac, mam = 0, "status-fail", "均線蓋頭或全數下彎"
@@ -220,8 +246,15 @@ def analyze_single_stock(stock_id):
     summary['量能狀態'] = vm
 
     # 5. 其他技術面 (15分)
-    ms = 10 if (today['DIF'] - today['MACD']) > 0 else 0; score += ms
-    tech_results.append(("MACD 動能", "柱狀翻紅", f"+{ms}分", "status-pass" if ms else "status-fail", "動能轉正"))
+    if macd_death: # 🎯 新增 MACD 死亡交叉強制歸零
+        ms, mc, mm = 0, "status-fail", "⚠️ MACD 死亡交叉 (波段翻空)"
+    elif (today['DIF'] - today['MACD']) > 0: 
+        ms, mc, mm = 10, "status-pass", "動能轉正"
+    else: 
+        ms, mc, mm = 0, "status-fail", "空頭動能"
+        
+    score += ms; tech_results.append(("MACD 動能", "柱狀狀態", f"+{ms}分", mc, mm))
+    
     qs = 5 if len(df) >= 60 and today['Close'] > df.iloc[-60]['Close'] else 0; score += qs
     tech_results.append(("季線趨勢", "現價 > 60日前", f"+{qs}分", "status-pass" if qs else "status-fail", "長線翻多"))
 
@@ -238,7 +271,7 @@ def analyze_single_stock(stock_id):
     
     return "success", score, {"tech": tech_results, "chip": chip_results, "summary": summary}
 
-# --- 📝 報表生成器 (提供給 PDF 列印使用) ---
+# --- 📝 報表生成器 ---
 def generate_html_report(df_results):
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     rows_html = ""
@@ -317,7 +350,11 @@ with tab1:
             elif status == "insufficient_data": st.error("⚠️ 該檔股票資料不足，無法進行運算。")
             else:
                 
-                if "連三漲停" in results['summary']['KD狀態']:
+                # 🚨 新增：最優先顯示死亡交叉警報
+                if results['summary'].get('death_cross_msg'):
+                    st.error(f"🚨 **死亡交叉警告**：{display_name} 近兩日內出現了『{results['summary']['death_cross_msg']}』！")
+                    st.info("💡 趨勢已正式轉弱或跌破重要支撐，這通常是波段下跌的起點，請務必避開或考慮停損。")
+                elif "連三漲停" in results['summary']['KD狀態']:
                     st.error(f"🚨 **妖股警報**：{display_name} 近五日內連續三日觸及『漲停板』！")
                     st.info("💡 系統已自動排除波動過劇、隨時可能面臨處置分盤交易的極端妖股，建議切勿追高。")
                 elif "爆量跌停" in results['summary']['KD狀態']:
@@ -351,12 +388,12 @@ with tab1:
                 <div class="weight-box">
                     <h3 style="color:#D4AF37; margin-top:0;">📊 買入評級 - 得分細節說明 (滿分100)</h3>
                     <table style="width:100%; color:#BBB; font-size:14px;">
-                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>KD 位階 (25分)</b></td><td>30~45(25) | 46~60(20) | 高檔鈍化觀望(10) | 高檔爆量無籌碼跌停(0)</td></tr>
+                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>KD 位階 (25分)</b></td><td>30~45(25) | 46~60(20) | 高檔鈍化觀望(10) | KD死亡交叉/跌停(0)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>量能健康度 (20分)</b></td><td>成交量續增(20) | 大於昨日(10) | 持平或量縮(5)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>外資核心 (15分)</b></td><td>連續買超(15) | 五日持股增加(10) | 持平(5) | 遞減(3)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>投信加分 (5分)</b></td><td>連續買超(5) | 五日持股增加(3) | 其餘不加分(0)</td></tr>
-                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>均線型態 (15分)</b></td><td>三支撐+三翻揚(15) | 雙支撐+雙翻揚(10) | 單支撐+單翻揚(5)</td></tr>
-                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>MACD/季線 (15分)</b></td><td>MACD 翻紅(10) + 價格站上季線(5)</td></tr>
+                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>均線型態 (15分)</b></td><td>三線翻揚(15) | 雙線翻揚(10) | 單線翻揚(5) | 均線死亡交叉(0)</td></tr>
+                        <tr><td style="color:#EAEAEA; padding:5px 0;"><b>MACD/季線 (15分)</b></td><td>MACD 翻紅(10) + 季線翻多(5) | MACD死亡交叉(0)</td></tr>
                         <tr><td style="color:#EAEAEA; padding:5px 0;"><b>週轉率 (5分)</b></td><td>6~10%(5) | 3~5%、11~15%(3) | 16~20%(1) | >20%或<3%(0)</td></tr>
                     </table>
                     <p style="margin-top:15px; font-weight:bold; color:#D4AF37;">🟢 80+ 值得買入 | 🟡 70+ 列入觀察 | 🔴 69 以下 暫不參考</p>
@@ -365,7 +402,7 @@ with tab1:
 
 with tab2:
     st.markdown('<p class="input-label" style="margin-top:20px;">📋 貼上自選股清單 (支援 Excel 複製貼上)</p>', unsafe_allow_html=True)
-    batch_input = st.text_area("batch_input", height=150, placeholder="例如：\n6530 創威\n4967 十銓", label_visibility="collapsed")
+    batch_input = st.text_area("batch_input", height=150, placeholder="例如：\n6530 創威\n8039 台虹", label_visibility="collapsed")
     if st.button("🚀 啟動批量掃描"):
         raw_ids = list(dict.fromkeys([line.strip().split()[0] for line in batch_input.strip().split('\n') if line.strip() and line.strip().split()[0].isalnum()]))
         if raw_ids:
@@ -386,7 +423,6 @@ with tab2:
                 df_res = pd.DataFrame(sum_d).sort_values(by="總分", ascending=False)
                 st.dataframe(df_res, use_container_width=True, hide_index=True)
                 
-                # 產生並提供 HTML 報表下載
                 html_data = generate_html_report(df_res)
                 st.download_button(
                     label="📄 匯出精美掃描報告 (點開後按 Ctrl+P 存成 PDF)",

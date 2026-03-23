@@ -32,6 +32,7 @@ st.markdown("""
     .stTabs [data-baseweb="tab-list"] { gap: 24px; }
     .stTabs [data-baseweb="tab"] { height: 50px; white-space: pre-wrap; background-color: #1A1A1A; border-radius: 8px 8px 0 0; padding: 10px 20px; color: #BBB; font-weight: bold; border: 1px solid #333; border-bottom: none; }
     .stTabs [aria-selected="true"] { background-color: #D4AF37 !important; color: #121212 !important; border-color: #D4AF37 !important; }
+    .streamlit-expanderHeader { font-size: 16px !important; font-weight: bold !important; color: #EAEAEA !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -92,11 +93,10 @@ def analyze_single_stock(stock_id):
     df['5MA'] = df['Close'].rolling(5).mean(); df['10MA'] = df['Close'].rolling(10).mean(); df['20MA'] = df['Close'].rolling(20).mean()
     df['5VMA'] = df['Volume'].rolling(5).mean()
     
-    # 🎯 補齊完整的 KD 值演算法
     df['9L'], df['9H'] = df['Low'].rolling(9).min(), df['High'].rolling(9).max()
     df['RSV'] = 100 * (df['Close'] - df['9L']) / (df['9H'] - df['9L'] + 1e-9)
     df['K'] = df['RSV'].ewm(com=2, adjust=False).mean()
-    df['D'] = df['K'].ewm(com=2, adjust=False).mean()  # 新增 D 值計算
+    df['D'] = df['K'].ewm(com=2, adjust=False).mean()
     
     df['DIF'] = df['Close'].ewm(span=12, adjust=False).mean() - df['Close'].ewm(span=26, adjust=False).mean()
     df['MACD'] = df['DIF'].ewm(span=9, adjust=False).mean()
@@ -115,7 +115,6 @@ def analyze_single_stock(stock_id):
     turnover = (today['Volume'] / total_shares) * 100 if total_shares > 0 else 0
     score = 0; tech_results = []; chip_results = []; summary = {}
     
-    # 🎯 死亡交叉判定函數 (偵測近兩日是否跌破)
     def check_death_cross(fast, slow):
         cross_today = (fast.iloc[-2] >= slow.iloc[-2]) and (fast.iloc[-1] < slow.iloc[-1])
         cross_yest = (fast.iloc[-3] >= slow.iloc[-3]) and (fast.iloc[-2] < slow.iloc[-2])
@@ -194,7 +193,6 @@ def analyze_single_stock(stock_id):
 
     summary['show_high_k_warning'] = (k_val >= 80) and is_today_vol_up and is_today_red
 
-    # 🎯 優先防禦判斷
     if has_3_lim_up:
         ks, kc, km = 0, "status-fail", "⚠️ 近五日連三漲停 (處置妖股風險)"
     elif has_lim_dn:
@@ -202,7 +200,7 @@ def analyze_single_stock(stock_id):
             ks, kc, km = 0, "status-fail", "⚠️ 高檔爆量跌停且法人無買盤 (強力出貨)"
         else:
             ks, kc, km = 10, "status-mid", "⚠️ 跌停回檔 (但籌碼或位階尚有支撐，觀望)"
-    elif kd_death:  # 🎯 新增 KD 死亡交叉強制歸零
+    elif kd_death:
         ks, kc, km = 0, "status-fail", "⚠️ KD 死亡交叉 (趨勢轉弱訊號)"
     elif k_val > 60 and (is_today_dump or is_yest_dump):
         ks, kc, km = 0, "status-fail", "⚠️ 近兩日放量收黑 (大戶出貨疑慮)"
@@ -226,7 +224,7 @@ def analyze_single_stock(stock_id):
     sup_count = sum([c_val > m5, c_val > m10, c_val > m20])
     up_count = sum([m5 > y_m5, m10 > y_m10, m20 > y_m20])
 
-    if ma_death: # 🎯 新增均線死亡交叉強制歸零
+    if ma_death: 
         mas, mac, mam = 0, "status-fail", "⚠️ 短均線死亡交叉 (跌破防守線)"
     elif sup_count == 3 and up_count == 3: mas, mac, mam = 15, "status-pass", "站穩三線且全數翻揚"
     elif sup_count >= 2 and up_count >= 2: mas, mac, mam = 10, "status-mid", "站穩雙線且雙線翻揚"
@@ -246,7 +244,7 @@ def analyze_single_stock(stock_id):
     summary['量能狀態'] = vm
 
     # 5. 其他技術面 (15分)
-    if macd_death: # 🎯 新增 MACD 死亡交叉強制歸零
+    if macd_death: 
         ms, mc, mm = 0, "status-fail", "⚠️ MACD 死亡交叉 (波段翻空)"
     elif (today['DIF'] - today['MACD']) > 0: 
         ms, mc, mm = 10, "status-pass", "動能轉正"
@@ -272,21 +270,40 @@ def analyze_single_stock(stock_id):
     return "success", score, {"tech": tech_results, "chip": chip_results, "summary": summary}
 
 # --- 📝 報表生成器 ---
-def generate_html_report(df_results):
+def generate_html_report(sum_d_sorted):
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     rows_html = ""
-    for _, row in df_results.iterrows():
+    for row in sum_d_sorted:
         sc = row['總分']
         color = "#2DCC70" if sc >= 80 else "#F1C40F" if sc >= 70 else "#E74C3C"
+        
+        tech_str = "".join([f"<div style='margin-bottom:4px; font-size:12px;'><b>{t}</b>: {d} <span style='color:#777;'>({r})</span> <span style='color:#D4AF37; font-weight:bold;'>[{stg}]</span></div>" for t, d, stg, cls, r in row['詳細資料']['tech']])
+        chip_str = "".join([f"<div style='margin-bottom:4px; font-size:12px;'><b>{t}</b>: {d} <span style='color:#777;'>({r})</span> <span style='color:#D4AF37; font-weight:bold;'>[{stg}]</span></div>" for t, d, stg, cls, r in row['詳細資料']['chip']])
+
+        details_html = f"""
+        <details style="margin-top: 8px; cursor: pointer; text-align: left; padding: 6px; background: #FDFBF5; border-radius: 6px; border: 1px solid #EEDDCC;">
+            <summary style="font-weight: bold; color: #B8860B; outline: none;">🔍 查看診斷細節 (點擊展開)</summary>
+            <div style="margin-top: 8px; color: #333;">
+                <div style="margin-bottom: 5px; border-bottom: 1px dashed #CCC; padding-bottom: 3px; font-size: 13px;"><b>🧬 法人籌碼面</b></div>
+                {chip_str}
+                <div style="margin-top: 8px; margin-bottom: 5px; border-bottom: 1px dashed #CCC; padding-bottom: 3px; font-size: 13px;"><b>🔍 技術面得分細節</b></div>
+                {tech_str}
+            </div>
+        </details>
+        """
+
         rows_html += f"""
         <tr>
-            <td style="font-weight:bold; font-size:15px;">{row['代號']} {row['名稱']}</td>
-            <td style="color:{color}; font-weight:bold; font-size:18px;">{sc}</td>
-            <td style="font-weight:bold;">{row['評級']}</td>
-            <td>{row['量能']}</td>
-            <td>{row['外資']}</td>
-            <td>{row['投信']}</td>
-            <td style="text-align:left; color:#555;">{row['KD狀態']}</td>
+            <td style="font-weight:bold; font-size:15px; vertical-align: top;">{row['代號']} {row['名稱']}</td>
+            <td style="color:{color}; font-weight:bold; font-size:18px; vertical-align: top;">{sc}</td>
+            <td style="font-weight:bold; vertical-align: top;">{row['評級']}</td>
+            <td style="vertical-align: top;">{row['量能']}</td>
+            <td style="vertical-align: top;">{row['外資']}</td>
+            <td style="vertical-align: top;">{row['投信']}</td>
+            <td style="text-align:left; color:#555; vertical-align: top;">
+                {row['KD狀態']}
+                {details_html}
+            </td>
         </tr>
         """
     
@@ -350,7 +367,6 @@ with tab1:
             elif status == "insufficient_data": st.error("⚠️ 該檔股票資料不足，無法進行運算。")
             else:
                 
-                # 🚨 新增：最優先顯示死亡交叉警報
                 if results['summary'].get('death_cross_msg'):
                     st.error(f"🚨 **死亡交叉警告**：{display_name} 近兩日內出現了『{results['summary']['death_cross_msg']}』！")
                     st.info("💡 趨勢已正式轉弱或跌破重要支撐，這通常是波段下跌的起點，請務必避開或考慮停損。")
@@ -402,7 +418,7 @@ with tab1:
 
 with tab2:
     st.markdown('<p class="input-label" style="margin-top:20px;">📋 貼上自選股清單 (支援 Excel 複製貼上)</p>', unsafe_allow_html=True)
-    batch_input = st.text_area("batch_input", height=150, placeholder="例如：\n6530 創威\n8039 台虹", label_visibility="collapsed")
+    batch_input = st.text_area("batch_input", height=150, placeholder="例如：\n6530 創威\n4967 十銓", label_visibility="collapsed")
     if st.button("🚀 啟動批量掃描"):
         raw_ids = list(dict.fromkeys([line.strip().split()[0] for line in batch_input.strip().split('\n') if line.strip() and line.strip().split()[0].isalnum()]))
         if raw_ids:
@@ -414,16 +430,35 @@ with tab2:
                     sum_d.append({
                         "代號": sid, "名稱": stock_mapping.get(sid, ""), "總分": s_sc, 
                         "評級": s_res['summary']['評級'], "量能": s_res['summary']['量能狀態'], "外資": s_res['summary']['外資狀態'], 
-                        "投信": s_res['summary']['投信狀態'], "KD狀態": s_res['summary']['KD狀態']
+                        "投信": s_res['summary']['投信狀態'], "KD狀態": s_res['summary']['KD狀態'],
+                        "詳細資料": s_res # 🎯 儲存供下拉選單與 HTML 報表使用
                     })
                 time.sleep(0.2)
             prog.progress(100); st_t.text("✅ 掃描完成！")
             
             if sum_d: 
-                df_res = pd.DataFrame(sum_d).sort_values(by="總分", ascending=False)
-                st.dataframe(df_res, use_container_width=True, hide_index=True)
+                sum_d_sorted = sorted(sum_d, key=lambda x: x["總分"], reverse=True)
+                df_res_display = pd.DataFrame([{k: v for k, v in d.items() if k != "詳細資料"} for d in sum_d_sorted])
+                st.dataframe(df_res_display, use_container_width=True, hide_index=True)
                 
-                html_data = generate_html_report(df_res)
+                # 🎯 批量掃描網頁端下拉展開功能
+                st.markdown("<br><h3 style='color:#D4AF37; margin-bottom:15px;'>📋 批量掃描詳細報告 (點擊下拉展開)</h3>", unsafe_allow_html=True)
+                for item in sum_d_sorted:
+                    sc = item['總分']
+                    status_icon = "🟢" if sc >= 80 else "🟡" if sc >= 70 else "🔴"
+                    with st.expander(f"{status_icon} {item['代號']} {item['名稱']} - 總分: {sc}分 ({item['評級']})"):
+                        res = item['詳細資料']
+                        
+                        st.markdown("#### 🧬 法人籌碼面")
+                        for t, d, stg, cls, r in res['chip']:
+                            st.markdown(f'<div class="check-item" style="padding:15px;"><div style="flex: 1;"><div class="check-title" style="font-weight:bold; color:#D4AF37;">{t} <span style="color:#EAEAEA; font-weight:normal;">({d})</span></div><div class="check-reason" style="font-size:13px; color:#AAA;">{r}</div></div><div class="{cls}">{stg}</div></div>', unsafe_allow_html=True)
+                            
+                        st.markdown("#### 🔍 技術面得分細節")
+                        for t, d, stg, cls, r in res['tech']:
+                            st.markdown(f'<div class="check-item" style="padding:15px;"><div style="flex: 1;"><div class="check-title" style="font-weight:bold; color:#D4AF37;">{t} <span style="color:#EAEAEA; font-weight:normal;">({d})</span></div><div class="check-reason" style="font-size:13px; color:#AAA;">{r}</div></div><div class="{cls}">{stg}</div></div>', unsafe_allow_html=True)
+
+                # 產生 HTML PDF 報告
+                html_data = generate_html_report(sum_d_sorted)
                 st.download_button(
                     label="📄 匯出精美掃描報告 (點開後按 Ctrl+P 存成 PDF)",
                     data=html_data,

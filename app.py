@@ -47,7 +47,9 @@ def fetch_stock_mapping():
         params = {"dataset": "TaiwanStockInfo", "token": FINMIND_TOKEN}
         res = requests.get(url, params=params, timeout=10).json()
         if res.get("msg") == "success":
-            return dict(zip(pd.DataFrame(res["data"])['stock_id'], pd.DataFrame(res["data"])['stock_name']))
+            df = pd.DataFrame(res["data"])
+            # 🎯 核心修復：強制將代號與名稱轉為乾淨的字串，解決比對不到的 Bug
+            return dict(zip(df['stock_id'].astype(str).str.strip(), df['stock_name'].astype(str).str.strip()))
         return {}
     except: return {}
 
@@ -292,14 +294,18 @@ def generate_html_report(sum_d_sorted):
         </details>
         """
 
+        # 🎯 報表排版升級：股票標的改為上代號、下名稱，完美對齊
         rows_html += f"""
         <tr>
-            <td style="font-weight:bold; font-size:15px; vertical-align: top;">{row['代號']} {row['名稱']}</td>
-            <td style="color:{color}; font-weight:bold; font-size:18px; vertical-align: top;">{sc}</td>
-            <td style="font-weight:bold; vertical-align: top;">{row['評級']}</td>
-            <td style="vertical-align: top;">{row['量能']}</td>
-            <td style="vertical-align: top;">{row['外資']}</td>
-            <td style="vertical-align: top;">{row['投信']}</td>
+            <td style="font-weight:bold; font-size:15px; vertical-align: middle; text-align:center;">
+                {row['代號']}<br>
+                <span style="color:#666; font-size:13px;">{row['名稱']}</span>
+            </td>
+            <td style="color:{color}; font-weight:bold; font-size:18px; vertical-align: middle;">{sc}</td>
+            <td style="font-weight:bold; vertical-align: middle;">{row['評級']}</td>
+            <td style="vertical-align: middle;">{row['量能']}</td>
+            <td style="vertical-align: middle;">{row['外資']}</td>
+            <td style="vertical-align: middle;">{row['投信']}</td>
             <td style="text-align:left; color:#555; vertical-align: top;">
                 {row['KD狀態']}
                 {details_html}
@@ -329,13 +335,13 @@ def generate_html_report(sum_d_sorted):
         <div class="meta-info">報告生成時間：{now_str}</div>
         <table>
             <tr>
-                <th width="15%">股票標的</th>
+                <th width="12%">股票標的</th>
                 <th width="8%">總分</th>
                 <th width="12%">綜合評級</th>
                 <th width="15%">量能健康度</th>
                 <th width="10%">外資狀態</th>
                 <th width="10%">投信狀態</th>
-                <th width="30%">KD 位階與防禦狀態</th>
+                <th width="33%">KD 位階與防禦狀態</th>
             </tr>
             {rows_html}
         </table>
@@ -431,7 +437,7 @@ with tab2:
                         "代號": sid, "名稱": stock_mapping.get(sid, ""), "總分": s_sc, 
                         "評級": s_res['summary']['評級'], "量能": s_res['summary']['量能狀態'], "外資": s_res['summary']['外資狀態'], 
                         "投信": s_res['summary']['投信狀態'], "KD狀態": s_res['summary']['KD狀態'],
-                        "詳細資料": s_res # 🎯 儲存供下拉選單與 HTML 報表使用
+                        "詳細資料": s_res
                     })
                 time.sleep(0.2)
             prog.progress(100); st_t.text("✅ 掃描完成！")
@@ -441,7 +447,6 @@ with tab2:
                 df_res_display = pd.DataFrame([{k: v for k, v in d.items() if k != "詳細資料"} for d in sum_d_sorted])
                 st.dataframe(df_res_display, use_container_width=True, hide_index=True)
                 
-                # 🎯 批量掃描網頁端下拉展開功能
                 st.markdown("<br><h3 style='color:#D4AF37; margin-bottom:15px;'>📋 批量掃描詳細報告 (點擊下拉展開)</h3>", unsafe_allow_html=True)
                 for item in sum_d_sorted:
                     sc = item['總分']
@@ -457,7 +462,6 @@ with tab2:
                         for t, d, stg, cls, r in res['tech']:
                             st.markdown(f'<div class="check-item" style="padding:15px;"><div style="flex: 1;"><div class="check-title" style="font-weight:bold; color:#D4AF37;">{t} <span style="color:#EAEAEA; font-weight:normal;">({d})</span></div><div class="check-reason" style="font-size:13px; color:#AAA;">{r}</div></div><div class="{cls}">{stg}</div></div>', unsafe_allow_html=True)
 
-                # 產生 HTML PDF 報告
                 html_data = generate_html_report(sum_d_sorted)
                 st.download_button(
                     label="📄 匯出精美掃描報告 (點開後按 Ctrl+P 存成 PDF)",

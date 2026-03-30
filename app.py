@@ -48,7 +48,6 @@ def fetch_stock_mapping():
         res = requests.get(url, params=params, timeout=10).json()
         if res.get("msg") == "success":
             df = pd.DataFrame(res["data"])
-            # 🎯 核心修復：強制將代號與名稱轉為乾淨的字串，解決比對不到的 Bug
             return dict(zip(df['stock_id'].astype(str).str.strip(), df['stock_name'].astype(str).str.strip()))
         return {}
     except: return {}
@@ -106,9 +105,10 @@ def analyze_single_stock(stock_id):
     today, yest = df.iloc[-1], df.iloc[-2]
     total_shares = fetch_total_shares(stock_id)
     
-    if total_shares <= 0 and not df_chip.empty and "ForeignInvestmentSharesRatio" in df_chip.columns and "ForeignInvestmentShares" in df_chip.columns:
+    # 🎯 修復區：將 df_chip 改為 df_fi 解決 NameError
+    if total_shares <= 0 and not df_fi.empty and "ForeignInvestmentSharesRatio" in df_fi.columns and "ForeignInvestmentShares" in df_fi.columns:
         try:
-            latest_chip = df_chip.iloc[-1]
+            latest_chip = df_fi.iloc[-1]
             ratio = float(latest_chip.get('ForeignInvestmentSharesRatio', 0))
             f_shares = float(latest_chip.get('ForeignInvestmentShares', 0))
             if ratio > 0: total_shares = f_shares / (ratio / 100)
@@ -294,7 +294,6 @@ def generate_html_report(sum_d_sorted):
         </details>
         """
 
-        # 🎯 報表排版升級：股票標的改為上代號、下名稱，完美對齊
         rows_html += f"""
         <tr>
             <td style="font-weight:bold; font-size:15px; vertical-align: middle; text-align:center;">
@@ -424,7 +423,7 @@ with tab1:
 
 with tab2:
     st.markdown('<p class="input-label" style="margin-top:20px;">📋 貼上自選股清單 (支援 Excel 複製貼上)</p>', unsafe_allow_html=True)
-    batch_input = st.text_area("batch_input", height=150, placeholder="例如：\n6530 創威\n4967 十銓", label_visibility="collapsed")
+    batch_input = st.text_area("batch_input", height=150, placeholder="例如：\n6530 創威\n8039 台虹", label_visibility="collapsed")
     if st.button("🚀 啟動批量掃描"):
         raw_ids = list(dict.fromkeys([line.strip().split()[0] for line in batch_input.strip().split('\n') if line.strip() and line.strip().split()[0].isalnum()]))
         if raw_ids:
